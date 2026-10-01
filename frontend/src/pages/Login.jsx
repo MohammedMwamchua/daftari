@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, Eye, EyeSlash, LockKey } from '@phosphor-icons/react';
+import { ArrowRight, CheckCircle, Eye, EyeSlash, LockKey, TrendUp } from '@phosphor-icons/react';
 import { api } from '../api.js';
 import { useI } from '../i18n.jsx';
 import { Btn, Callout, Logo, TextField } from '../components/ui.jsx';
@@ -16,6 +16,7 @@ export default function Login({ onDone, theme, toggle }) {
 
   const submit = async (e) => {
     e.preventDefault();
+    if (!user.trim() || !pass) { setErr(t('Jaza jina la mtumiaji na nenosiri.', 'Enter your username and password.')); return; }
     setBusy(true); setErr('');
     try { await api.login(user.trim(), pass); onDone(); }
     catch (ex) { setErr(ex.status === 401 || ex.status === 400 ? t('Jina au nenosiri si sahihi.', 'Wrong username or password.') : t('Imeshindwa kuunganisha na seva.', 'Could not reach the server.')); }
@@ -31,17 +32,20 @@ export default function Login({ onDone, theme, toggle }) {
           <h1>{t('Hesabu zako, wazi kama kioo.', 'Your books, clear as glass.')}</h1>
           <p>{t('Mauzo, pesa, wafanyakazi na mishahara ya banda na mgahawa. Mahali pamoja.', 'Sales, cash, workers and salaries for the stall and restaurant. All in one place.')}</p>
         </motion.div>
+        {/* Illustrative only — no login session exists yet to show real figures here. */}
         <motion.div className="float-card" style={{ right: '8%', top: '22%' }} animate={{ y: [0, -10, 0] }} transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}>
-          <small>{t('Mauzo ya leo', 'Sales today')}</small><b>TSh 566,000</b>
+          <TrendUp size={18} weight="bold" aria-hidden="true" />
+          <span>{t('Mauzo ya kila siku, yanafuatiliwa', 'Daily sales, tracked')}</span>
         </motion.div>
-        <motion.div className="float-card" style={{ right: '22%', bottom: '24%' }} animate={{ y: [0, 10, 0] }} transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}>
-          <small>{t('Tofauti ya pesa', 'Cash difference')}</small><b>TSh 0 ✓</b>
+        <motion.div className="float-card" style={{ right: '22%', top: '50%' }} animate={{ y: [0, 10, 0] }} transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}>
+          <CheckCircle size={18} weight="bold" aria-hidden="true" />
+          <span>{t('Hesabu ya pesa, sahihi kila siku', 'Cash counts, accurate every day')}</span>
         </motion.div>
       </section>
 
       <section className="login-form">
         <div className="tools"><Tools theme={theme} toggle={toggle} /></div>
-        <motion.form onSubmit={submit} initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}>
+        <motion.form onSubmit={submit} noValidate initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}>
           <div><p className="eyebrow">{t('Karibu tena', 'Welcome back')}</p><h1 style={{ fontSize: '2.2rem', marginTop: 6 }}>{t('Ingia kama meneja', 'Sign in as manager')}</h1></div>
           <TextField label={t('Jina la mtumiaji', 'Username')} value={user} onChange={setUser} autoComplete="username" autoFocus required />
           <label className="field">

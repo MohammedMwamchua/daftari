@@ -14,15 +14,22 @@ export function useTheme() {
   return [theme, toggle];
 }
 
+/* A real toggle: both languages are always on screen, side by side, in a pill of
+   fixed width — only a sliding highlight moves, nothing resizes or changes text,
+   so the control never jumps around. Each short label is a native short form of
+   that language's own name ("KIS" for Kiswahili, "ENG" for English) rather than
+   an abbreviation of the other language's word for it; the full name is still
+   available as a tooltip and to screen readers. */
 export function LangSwitch() {
-  const { lang, setLang } = useI();
+  const { lang, setLang, t } = useI();
   const id = useId();
+  const options = [['sw', 'KIS', 'Kiswahili'], ['en', 'ENG', 'English']];
   return (
-    <div className="lang" role="group" aria-label="Language">
-      {[['sw', 'SW'], ['en', 'EN']].map(([v, label]) => (
-        <button key={v} type="button" aria-pressed={lang === v} onClick={() => setLang(v)}>
-          {lang === v ? <motion.span layoutId={id} className="thumb" transition={{ type: 'spring', stiffness: 500, damping: 36 }} /> : null}
-          <span>{label}</span>
+    <div className="lang" role="group" aria-label={t('Lugha', 'Language')}>
+      {options.map(([v, short, full]) => (
+        <button key={v} type="button" aria-pressed={lang === v} title={full} aria-label={full} onClick={() => setLang(v)}>
+          {lang === v ? <motion.span layoutId={id} className="thumb" transition={{ type: 'spring', stiffness: 520, damping: 38 }} /> : null}
+          <span>{short}</span>
         </button>
       ))}
     </div>

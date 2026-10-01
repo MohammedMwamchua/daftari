@@ -100,7 +100,8 @@ class ChangePasswordView(APIView):
         try:
             validate_password(new, user=u)
         except DjangoValidationError as e:
-            raise ValidationError({'new_password': list(e.messages)})
+            # Stable codes, not Django's English sentences, so the screen can translate them.
+            raise ValidationError({'new_password': [err.code or 'password_invalid' for err in e.error_list]})
         u.set_password(new)
         u.save()
         svc.audit(u, 'user.change_password', u.id)

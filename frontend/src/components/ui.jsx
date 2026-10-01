@@ -143,6 +143,7 @@ export function Btn({ loading, children, className = '', ...rest }) {
 }
 
 export function Modal({ open, onClose, title, description, children }) {
+  const { t } = useI();
   return (
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
@@ -150,7 +151,7 @@ export function Modal({ open, onClose, title, description, children }) {
         <Dialog.Content className="modal" aria-describedby={description ? undefined : undefined}>
           <Dialog.Title asChild><h2>{title}</h2></Dialog.Title>
           {description ? <Dialog.Description className="muted">{description}</Dialog.Description> : null}
-          <Dialog.Close asChild><button type="button" className="icon-plain x" aria-label="Close"><X size={18} weight="bold" /></button></Dialog.Close>
+          <Dialog.Close asChild><button type="button" className="icon-plain x" aria-label={t('Funga', 'Close')}><X size={18} weight="bold" /></button></Dialog.Close>
           <div style={{ marginTop: 18 }}>{children}</div>
         </Dialog.Content>
       </Dialog.Portal>

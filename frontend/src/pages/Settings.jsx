@@ -105,9 +105,20 @@ function PasswordTab() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
+  // Codes the backend returns for a weak password (django.contrib.auth.password_validation),
+  // translated here instead of showing Django's own English sentences.
+  const PASSWORD_CODE = {
+    password_too_short: t('Nenosiri jipya ni fupi mno. Liwe na angalau herufi 8.', 'New password is too short. It must be at least 8 characters.'),
+    password_too_common: t('Nenosiri hilo linatumika sana na si salama. Jaribu lingine.', 'That password is too common to be safe. Try a different one.'),
+    password_entirely_numeric: t('Nenosiri jipya lisiwe tarakimu tu.', 'New password cannot be entirely numbers.'),
+    password_too_similar: t('Nenosiri jipya linafanana sana na taarifa zako. Jaribu lingine.', 'New password is too similar to your account details. Try a different one.'),
+    password_invalid: t('Nenosiri jipya halikubaliki.', 'New password is not acceptable.'),
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     setErrors(null);
+    if (!current || !next || !confirm) { setErrors([t('Jaza sehemu zote.', 'Fill in all the fields.')]); return; }
     if (next !== confirm) { setErrors([t('Nenosiri jipya na uthibitisho hazifanani.', 'New password and confirmation do not match.')]); return; }
     if (next.length < 8) { setErrors([t('Nenosiri jipya liwe na angalau herufi 8.', 'New password must be at least 8 characters.')]); return; }
     setBusy(true);
@@ -117,14 +128,14 @@ function PasswordTab() {
       toast.success(t('Nenosiri limebadilishwa.', 'Password changed.'));
     } catch (ex) {
       if (ex.code === 'wrong_password') setErrors([t('Nenosiri la sasa si sahihi.', 'Your current password is wrong.')]);
-      else if (ex.data?.errors?.new_password) setErrors(ex.data.errors.new_password);
+      else if (ex.data?.errors?.new_password) setErrors(ex.data.errors.new_password.map((code) => PASSWORD_CODE[code] || PASSWORD_CODE.password_invalid));
       else setErrors([t('Imeshindwa kubadilisha nenosiri. Jaribu tena.', 'Could not change the password. Try again.')]);
     } finally { setBusy(false); }
   };
 
   return (
     <div className="two" style={{ marginTop: 0 }}>
-      <form className="panel stack" onSubmit={submit} style={{ maxWidth: 440 }}>
+      <form className="panel stack" onSubmit={submit} noValidate style={{ maxWidth: 440 }}>
         <h2>{t('Badilisha nenosiri', 'Change password')}</h2>
         <p className="muted">{t('Hili ni nenosiri la kuingia kama meneja.', 'This is the password used to sign in as manager.')}</p>
         <PasswordField label={t('Nenosiri la sasa', 'Current password')} value={current} onChange={setCurrent} autoComplete="current-password" />
