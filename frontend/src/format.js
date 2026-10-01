@@ -1,0 +1,12 @@
+export const num = (n) => Math.round(n || 0).toLocaleString('en-US');
+export const tsh = (n) => `TSh ${num(n)}`;
+export const signed = (n) => (n > 0 ? '+' : n < 0 ? '−' : '') + num(Math.abs(n));
+export const sum = (arr, f = (x) => x) => arr.reduce((a, x) => a + f(x), 0);
+export const pad2 = (n) => String(n).padStart(2, '0');
+export const isoOf = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+export const parseISO = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+export const ymOf = (iso) => iso.slice(0, 7);
+export const addDays = (iso, n) => { const d = parseISO(iso); d.setDate(d.getDate() + n); return isoOf(d); };
+export const daysInMonth = (ym) => { const [y, m] = ym.split('-').map(Number); return new Date(y, m, 0).getDate(); };
+export const kfmt = (v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(Math.round(v)));
+export const pct = (now, before) => (before ? Math.round(((now - before) / before) * 100) : 0);
