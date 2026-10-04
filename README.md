@@ -1,5 +1,11 @@
 # Daftari
 
+[![Tests](../../actions/workflows/tests.yml/badge.svg)](../../actions/workflows/tests.yml)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB)
+![Django 5.2](https://img.shields.io/badge/django-5.2-0C4B33)
+![React 19](https://img.shields.io/badge/react-19-149ECA)
+![License: All rights reserved](https://img.shields.io/badge/license-all%20rights%20reserved-lightgrey)
+
 **Daftari** ("notebook" in Swahili) is a bookkeeping web app for a small Tanzanian food business with two sections: a chips stall (**banda**) and a restaurant (**mgahawa**). The manager uses it each evening to record sales and expenses, count the cash in each till, and mark attendance. From those records it works out cash shortages, salaries and profit.
 
 The app is for the manager only: there is one login, and workers do not sign in. Every screen is available in Swahili and English, and it works on a phone.
@@ -19,6 +25,8 @@ The app is for the manager only: there is one login, and workers do not sign in.
 - [Project layout](#project-layout)
 - [API overview](#api-overview)
 - [Going to production](#going-to-production)
+- [Author](#author)
+- [License](#license)
 
 ---
 
@@ -202,7 +210,7 @@ npm run dev                         # http://localhost:5173
 
 - **Empty start:** leave out `--demo` to start with no data. `seed_demo` still creates the login, the expense categories and the settings. It is safe to run more than once.
 - **Change the password:** `python manage.py changepassword manager`.
-- **Tests:** `cd backend` and run `python manage.py test core`, with `USE_SQLITE=1` set in the environment or in `.env`.
+- **Tests:** `cd backend` and run `python manage.py test core`, with `USE_SQLITE=1` set in the environment or in `.env`. GitHub runs these tests, and builds the frontend, on every push ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)).
 
 ---
 
@@ -276,3 +284,15 @@ The repository does not include a deployment setup yet. These are the parts to s
 2. Run `python manage.py migrate` and `python manage.py collectstatic`. Then serve the backend with `gunicorn config.wsgi`. WhiteNoise serves the admin's static files.
 3. Run `npm run build` in `frontend/`. Set `VITE_API_URL` first if the API runs on another address. Serve the resulting `dist/` folder from any static host.
 4. Change the manager password from the default.
+
+---
+
+## Author
+
+Built and maintained by [MohammedMwamchua](https://github.com/MohammedMwamchua). For questions or permission to use the code, open an issue or contact the author on GitHub.
+
+---
+
+## License
+
+Copyright © 2026 MohammedMwamchua. **All rights reserved.** This code is proprietary: it may not be copied, changed, shared or used without written permission. See [LICENSE](LICENSE).
