@@ -8,7 +8,7 @@ from django.db import transaction
 
 from core import services as svc
 from core.models import (
-    SECTIONS, Advance, Attendance, Day, DaySection, Delivery, Expense, ExpenseCategory, LeaveRecord, Settings,
+    SECTIONS, Advance, Attendance, Day, DaySection, Expense, ExpenseCategory, LeaveRecord, Settings,
     Shortage, Worker,
 )
 
@@ -58,7 +58,7 @@ class Command(BaseCommand):
             weekend = svc.js_dow(d) in (5, 6, 0)
             total = 300000 + rnd.randint(0, 10) * 18000 + (90000 if weekend else 0)
             b = round(total * rnd.uniform(0.31, 0.36) / 500) * 500
-            day = Day.objects.create(date=d, closed_at=svc.timezone.now(), visited=[0, 1, 2, 3, 4, 5])
+            day = Day.objects.create(date=d, closed_at=svc.timezone.now(), visited=[0, 1, 2, 3, 4])
             diff = rnd.choice([0] * 7 + [-2000, 1000, -3500])
             for s, amount in zip(SECTIONS, (b, total - b)):
                 mobile = round(amount * rnd.uniform(0.34, 0.42) / 500) * 500
@@ -89,13 +89,11 @@ class Command(BaseCommand):
         for s, (cash, mobile, cashier) in {'banda': (118000, 64000, ws[1]), 'mgahawa': (236000, 148000, ws[0])}.items():
             sec[s].cash, sec[s].mobile, sec[s].cashier = cash, mobile, cashier
             sec[s].save()
-        Delivery.objects.create(day=day, worker=ws[3], section='mgahawa', amount=12000, method='cash')
-        Delivery.objects.create(day=day, worker=ws[2], section='banda', amount=8500, method='mobile', handed_in=True)
         Expense.objects.create(date=today, category=cats['gesi'], amount=25000, reason='Mtungi wa gesi', paid_from='droo', section='banda')
         Expense.objects.create(date=today, category=cats['malighafi'], amount=84000, reason='Viazi na mafuta ya kupikia', paid_from='simu')
         for w, st in ((ws[0], 'present'), (ws[1], 'late'), (ws[2], 'present')):
             Attendance.objects.get_or_create(worker=w, date=today, defaults={'status': st})
-        day.visited = [0, 1, 2]
+        day.visited = [0, 1]
         day.save()
         LeaveRecord.objects.create(worker=ws[5], kind='permission', start=today, end=today, reason='Shughuli ya familia')
         LeaveRecord.objects.create(worker=ws[3], kind='holiday', start=today + timedelta(days=5), end=today + timedelta(days=8), reason='Kwenda kijijini')

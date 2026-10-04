@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, Check, CheckCircle, TrendDown, TrendUp } from '@phosphor-icons/react';
-import { toast } from 'sonner';
 import { useActions, useDay, useErr, useMeta } from '../hooks.js';
 import { useI } from '../i18n.jsx';
 import { num, pct, sum, tsh } from '../format.js';
@@ -23,8 +22,9 @@ export default function Leo() {
   if (!d) return <PageSkeleton />;
 
   const closed = d.closed;
-  const next = [0, 1, 2, 3, 4, 5].find((i) => !d.visited.includes(i)) ?? 5;
-  const doneCount = closed ? 6 : d.visited.length;
+  const open = STEPS.findIndex((_, i) => !d.visited.includes(i));
+  const next = open < 0 ? STEPS.length - 1 : open;
+  const doneCount = closed ? STEPS.length : d.visited.length;
   const hour = new Date().getHours();
   const hello = hour < 12 ? t('Habari za asubuhi', 'Good morning') : hour < 17 ? t('Habari za mchana', 'Good afternoon') : t('Habari za jioni', 'Good evening');
   const delta = pct(d.sales_total, d.yesterday.total);
@@ -39,7 +39,6 @@ export default function Leo() {
   const away = d.attendance.filter((w) => ['dayoff', 'permission', 'holiday'].includes(w.status)).length;
   const unmarked = d.attendance.filter((w) => !w.status).length;
 
-  const handIn = async (row) => { try { await act.handIn(row.ids); toast.success(t(`${row.name} amekabidhi pesa.`, `${row.name} handed in the cash.`)); } catch (e) { fail(e); } };
   const flip = async (s) => { try { await act.setShortage(s.id, s.status === 'waived' ? 'applied' : 'waived'); } catch (e) { fail(e); } };
 
   return (
@@ -85,9 +84,9 @@ export default function Leo() {
           <div className="ticket-stub">
             <span className="notch t" aria-hidden="true" /><span className="notch b" aria-hidden="true" />
             <div className="stub-head">
-              <Ring done={doneCount} now={closed ? -1 : next} />
+              <Ring done={doneCount} now={closed ? -1 : next} total={STEPS.length} />
               <div>
-                <h2>{closed ? t('Kila kitu kimekamilika', 'Everything is done') : t(`Hatua ${doneCount} kati ya 6`, `${doneCount} of 6 steps done`)}</h2>
+                <h2>{closed ? t('Kila kitu kimekamilika', 'Everything is done') : t(`Hatua ${doneCount} kati ya ${STEPS.length}`, `${doneCount} of ${STEPS.length} steps done`)}</h2>
                 <p className="muted">{closed ? t('Siku imefungwa', 'The day is locked') : t(`Inayofuata: ${STEPS[next][0]}`, `Next: ${STEPS[next][1]}`)}</p>
               </div>
             </div>
@@ -144,18 +143,10 @@ export default function Leo() {
 
           <Rise as="section" delay={0.08}>
             <div className="sec-head"><h2>{t('Yanayosubiri wewe', 'Waiting for you')}</h2></div>
-            {d.owed.length === 0 && d.shortages.length === 0 && d.unpaid_salaries.length === 0 ? (
+            {d.shortages.length === 0 && d.unpaid_salaries.length === 0 ? (
               <Empty icon={CheckCircle}>{t('Hakuna kinachosubiri. Kazi nzuri.', 'Nothing is waiting. Good work.')}</Empty>
             ) : (
               <ul className="list">
-                {d.owed.map((o) => (
-                  <li key={`o${o.worker_id}`}>
-                    <Chip tone="warn">{t('Anadaiwa', 'Owes')}</Chip>
-                    <span className="li-main"><strong>{o.name}</strong><span>{t('Pesa ya delivery haijakabidhiwa', 'Delivery cash not handed in')}</span></span>
-                    <span className="li-amt">{tsh(o.amount)}</span>
-                    <Btn className="btn-quiet btn-small" onClick={() => handIn(o)}>{t('Amekabidhi', 'Handed in')}</Btn>
-                  </li>
-                ))}
                 {d.shortages.map((s) => (
                   <li key={`s${s.id}`}>
                     <Chip tone={s.status === 'waived' ? 'neutral' : 'bad'}>{s.status === 'waived' ? t('Imesamehewa', 'Waived') : t('Upungufu', 'Shortage')}</Chip>

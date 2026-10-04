@@ -126,20 +126,6 @@ class Attendance(Stamped):
         unique_together = [('worker', 'date')]
 
 
-class Delivery(Stamped):
-    METHODS = [('cash', 'Cash'), ('mobile', 'Mobile money')]
-    day = models.ForeignKey(Day, on_delete=models.CASCADE, related_name='deliveries')
-    worker = models.ForeignKey(Worker, on_delete=models.PROTECT, related_name='deliveries')
-    section = models.CharField(max_length=8, choices=SECTION_CHOICES)
-    amount = models.BigIntegerField()
-    method = models.CharField(max_length=6, choices=METHODS)
-    handed_in = models.BooleanField(default=False)
-    handed_in_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        ordering = ['id']
-
-
 class Expense(Stamped):
     FROM = [('droo', 'Till'), ('simu', 'Mobile money'), ('other', 'Other')]
     date = models.DateField()

@@ -36,12 +36,11 @@ class RulesTest(APITestCase):
 
     def test_expected_cash_and_difference(self):
         self.sales()
-        self.client.post(f'/api/days/{self.d}/deliveries/', {'worker_id': self.cook.id, 'section': 'banda', 'amount': 12000, 'method': 'cash'}, format='json')
         self.client.post('/api/expenses/', {'category': 'gesi', 'amount': 25000, 'reason': 'gas', 'paid_from': 'droo', 'section': 'banda'}, format='json')
-        r = self.client.put(f'/api/days/{self.d}/cash-count/', {'banda': 50000 + 63000 - 2000, 'mgahawa': 80000 + 200000}, format='json')
+        r = self.client.put(f'/api/days/{self.d}/cash-count/', {'banda': 50000 + 75000 - 2000, 'mgahawa': 80000 + 200000}, format='json')
         b = r.data['sections']['banda']
-        self.assertEqual(b['expected'], 100000 - 12000 - 25000)
-        self.assertEqual(b['difference'], 61000 - 63000)  # counted 111000 - float 50000 - expected 63000 = -2000
+        self.assertEqual(b['expected'], 100000 - 25000)
+        self.assertEqual(b['difference'], 73000 - 75000)  # counted 123000 - float 50000 - expected 75000 = -2000
         self.assertEqual(r.data['sections']['mgahawa']['difference'], 0)
 
     def test_close_writes_shortage_and_locks(self):
@@ -210,14 +209,60 @@ class RulesTest(APITestCase):
         r = self.client.post(f'/api/workers/{self.cook.id}/shortages/', {'amount': 500, 'reason': 'Broken cups'}, format='json')
         self.assertEqual(r.status_code, 201)
 
-    def test_remove_blocked_while_cash_owed(self):
+    def test_day_and_month_totals_for_money_page(self):
+        ym = svc.ym_of(self.today)
         self.sales()
-        r = self.client.post(f'/api/days/{self.d}/deliveries/', {'worker_id': self.cook.id, 'section': 'banda', 'amount': 9000, 'method': 'cash'}, format='json')
-        did = r.data['deliveries'][0]['id']
-        r = self.client.post(f'/api/workers/{self.cook.id}/remove/', {'reason': 'left'}, format='json')
-        self.assertEqual((r.status_code, r.data['code'], r.data['owed']), (409, 'delivery_cash_owed', 9000))
-        self.client.patch(f'/api/deliveries/{did}/', {'handed_in': True}, format='json')
-        self.assertEqual(self.client.post(f'/api/workers/{self.cook.id}/remove/', {'reason': 'left'}, format='json').status_code, 200)
+        self.client.post('/api/expenses/', {'category': 'gesi', 'amount': 25000, 'reason': 'gas', 'paid_from': 'simu', 'date': self.d}, format='json')
+        self.client.post('/api/advances/', {'worker_id': self.cook.id, 'amount': 7000, 'date': self.d}, format='json')
+        day = self.client.get(f'/api/days/{self.d}/').data
+        self.assertEqual([(a['worker_name'], a['amount']) for a in day['advances']], [('Juma', 7000)])
+
+        # an expense on a day with no sales still shows up, so the expense column adds up to the month total
+        first, _ = svc.month_bounds(ym)
+        other = next(first + timedelta(days=i) for i in range(28) if first + timedelta(days=i) != self.today)
+        self.client.post('/api/expenses/', {'category': 'gesi', 'amount': 4000, 'reason': 'gas', 'paid_from': 'simu', 'date': other.isoformat()}, format='json')
+        r = self.client.get(f'/api/reports/month/{ym}/').data
+        rows = {x['date']: x for x in r['days']}
+        self.assertEqual((rows[self.d]['expenses'], rows[self.d]['total']), (25000, 350000))
+        self.assertEqual((rows[other.isoformat()]['expenses'], rows[other.isoformat()]['total']), (4000, 0))
+        self.assertEqual(sum(x['expenses'] for x in r['days']), r['expenses_total'])
+
+    def test_one_day_pay_and_report(self):
+        self.sales()
+        self.mark_all()  # cashier present, cook late
+        self.client.post('/api/expenses/', {'category': 'gesi', 'amount': 25000, 'reason': 'gas', 'paid_from': 'simu'}, format='json')
+        self.client.post('/api/advances/', {'worker_id': self.cook.id, 'amount': 7000}, format='json')
+        self.client.post(f'/api/workers/{self.cashier.id}/shortages/', {'amount': 2000, 'reason': 'Broken cups'}, format='json')
+
+        pay = self.client.get(f'/api/days/{self.d}/pay/').data
+        rows = {l['worker']['id']: l for l in pay['lines']}
+        self.assertEqual((rows[self.cashier.id]['earned'], rows[self.cashier.id]['shortages']), (10000, 2000))  # 300,000 / 30
+        self.assertEqual((rows[self.cook.id]['earned'], rows[self.cook.id]['advances']), (10000, 7000))  # late still earns the day
+        self.assertEqual((pay['total_earned'], pay['total_advances'], pay['total_shortages']), (20000, 7000, 2000))
+
+        # an absent monthly worker earns nothing that day
+        self.client.put(f'/api/days/{self.d}/attendance/', {str(self.cashier.id): 'absent'}, format='json')
+        rows = {l['worker']['id']: l for l in self.client.get(f'/api/days/{self.d}/pay/').data['lines']}
+        self.assertEqual(rows[self.cashier.id]['earned'], 0)
+
+    def test_day_report_adds_up_from_the_first(self):
+        # two days at the start of last month, so the figures don't depend on today's date
+        first = svc.month_bounds(svc.ym_of(self.today.replace(day=1) - timedelta(days=1)))[0]
+        d1, d2 = first.isoformat(), (first + timedelta(days=1)).isoformat()
+        for d, banda, spend in ((d1, 100000, 20000), (d2, 60000, 5000)):
+            self.client.put(f'/api/days/{d}/sales/', {'banda': {'cash': banda, 'mobile': 0}, 'mgahawa': {'cash': 40000, 'mobile': 10000}}, format='json')
+            self.client.post('/api/expenses/', {'category': 'gesi', 'amount': spend, 'reason': 'gas', 'paid_from': 'simu', 'date': d}, format='json')
+        salaries = self.client.get(f'/api/reports/month/{svc.ym_of(first)}/').data['salaries_total']
+
+        r = self.client.get(f'/api/reports/day/{d1}/').data
+        self.assertEqual((r['total'], r['expenses_total'], r['profit']), (150000, 20000, 150000 - 20000 - salaries))
+
+        # on the 2nd: sales of the 1st + 2nd, expenses of the 1st + 2nd, minus the whole month's salaries
+        r = self.client.get(f'/api/reports/day/{d2}/').data
+        self.assertEqual((r['from'], r['total'], r['expenses_total'], r['salaries_total']), (d1, 260000, 25000, salaries))
+        self.assertEqual(r['profit'], 260000 - 25000 - salaries)
+        self.assertEqual((r['day_sales'], r['day_expenses']), (110000, 5000))
+        self.assertEqual([(x['date'], x['sales_to_date'], x['expenses_to_date']) for x in r['running']], [(d1, 150000, 20000), (d2, 260000, 25000)])
 
     def test_salary_formulas(self):
         ym = svc.ym_of(self.today)

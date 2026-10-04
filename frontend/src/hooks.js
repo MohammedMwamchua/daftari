@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from './api.js';
 import { useI } from './i18n.jsx';
@@ -6,7 +6,9 @@ import { useI } from './i18n.jsx';
 const q = (key, path, opts = {}) => ({ queryKey: key, queryFn: () => api.get(path), ...opts });
 
 export const useMeta = () => useQuery(q(['meta'], '/meta/', { staleTime: 30_000 }));
-export const useDay = (date) => useQuery(q(['day', date], `/days/${date}/`, { enabled: !!date }));
+export const useDay = (date, opts) => useQuery(q(['day', date], `/days/${date}/`, { enabled: !!date, ...opts }));
+export const useDayPay = (date) => useQuery(q(['day-pay', date], `/days/${date}/pay/`, { placeholderData: keepPreviousData }));
+export const useDayReport = (date) => useQuery(q(['day-report', date], `/reports/day/${date}/`, { placeholderData: keepPreviousData }));
 export const useWorkers = () => useQuery(q(['workers'], '/workers/'));
 export const useWorker = (id, month) => useQuery(q(['worker', id, month], `/workers/${id}/?month=${month}`));
 export const useAccount = (id, month) => useQuery(q(['account', id, month], `/workers/${id}/account/?month=${month}`));
@@ -22,7 +24,6 @@ export function useErr() {
       day_closed: t('Siku hii imefungwa. Ongeza marekebisho kama rekodi mpya.', 'This day is closed. Add a correction as a new entry.'),
       attendance_missing: t('Andika mahudhurio ya kila mfanyakazi kwanza.', 'Mark attendance for every worker first.'),
       cashier_required: t('Chagua keshia wa siku kabla ya kufunga.', 'Choose the cashier of the day before closing.'),
-      delivery_cash_owed: t('Mfanyakazi huyu bado anadaiwa pesa ya delivery.', 'This worker still owes delivery cash.'),
       salary_locked: t('Orodha ya mishahara imeidhinishwa na imefungwa.', 'The salary list is approved and locked.'),
       wrong_password: t('Nenosiri la sasa si sahihi.', 'Your current password is wrong.'),
       category_in_use: t('Kundi hili linatumika kwenye matumizi yaliyoandikwa. Lifiche badala yake.', 'This category is used by expenses already recorded. Hide it instead.'),
@@ -45,9 +46,6 @@ export function useActions() {
     saveSales: (d, body) => dayRes(api.put(`/days/${d}/sales/`, body)),
     saveCount: (d, body) => dayRes(api.put(`/days/${d}/cash-count/`, body)),
     saveAttendance: (d, body) => dayRes(api.put(`/days/${d}/attendance/`, body)),
-    addDelivery: (d, body) => dayRes(api.post(`/days/${d}/deliveries/`, body)),
-    delDelivery: (id) => dayRes(api.del(`/deliveries/${id}/`)),
-    handIn: (ids) => settle(Promise.all(ids.map((id) => api.patch(`/deliveries/${id}/`, { handed_in: true })))),
     visit: async (d, step) => {
       const r = await api.post(`/days/${d}/visit/`, { step });
       qc.setQueryData(['day', d], (old) => (old ? { ...old, visited: r.visited } : old));

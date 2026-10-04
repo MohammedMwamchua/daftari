@@ -11,6 +11,11 @@ legacy-prototype/   the original in-memory prototype, kept for reference
 
 ## Run it
 
+**Windows:** double-click `start.bat`. The first run installs everything (uses SQLite if Docker is missing); after that it
+starts the backend and frontend in two windows and opens http://localhost:5173. Close those windows to stop.
+
+By hand:
+
 ```bash
 # 1. database
 docker compose up -d            # PostgreSQL 16 (daftari / daftari / daftari)
@@ -36,7 +41,7 @@ Tests: `cd backend && USE_SQLITE=1 python manage.py test core`
 ## Rules enforced by the server
 Closed days are locked; closing needs every active worker marked and a cashier for any shortage; closing writes the shortage
 straight onto the cashier's account; shortages can be waived/reapplied and advances added only until the month's salary list is
-approved; approved lists are snapshotted; a worker cannot be removed while delivery cash is owed; manual shortages need a reason;
+approved; approved lists are snapshotted; manual shortages need a reason;
 every close, shortage, waiver, advance, removal and approval is written to `AuditLog`.
 
 PDF/Excel: `GET /api/reports/month/<yyyy-mm>/?file=pdf|xlsx&lang=sw|en` (same for `/day/<date>/`).

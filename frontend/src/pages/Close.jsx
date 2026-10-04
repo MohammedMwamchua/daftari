@@ -1,22 +1,31 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { ArrowLeft, ArrowRight, Check, Lock, Trash } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { useActions, useDay, useErr, useMeta, useWorkers } from '../hooks.js';
 import { useI } from '../i18n.jsx';
-import { num, sum, tsh } from '../format.js';
+import { addDays, num, sum, tsh } from '../format.js';
 import { PAID_FROM, ROLES, SEC, SECTIONS, STEPS } from '../vocab.js';
-import { Avatar, Btn, Callout, Chip, CountUp, Empty, Leader, Money, MoneyInput, Page, PageSkeleton, Seg, SelectField, StatusChip } from '../components/ui.jsx';
+import { Avatar, Btn, Callout, Chip, CountUp, Empty, Leader, Money, MoneyInput, Page, PageSkeleton, SelectField, StatusChip, TextField } from '../components/ui.jsx';
 import { ExpenseForm } from '../components/forms.jsx';
 
-const stepOf = (v) => Math.min(5, Math.max(0, Number.parseInt(v ?? '0', 10) || 0));
+const LAST = STEPS.length - 1;
+const stepOf = (v) => Math.min(LAST, Math.max(0, Number.parseInt(v ?? '0', 10) || 0));
 
+/* ?siku=YYYY-MM-DD fills an earlier day; anything missing, malformed or in the future means today. */
 export default function Close() {
-  const { t, p } = useI();
   const today = useMeta().data.today;
-  const { data: d } = useDay(today);
+  const asked = useSearchParams()[0].get('siku');
+  const day = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && asked < today ? asked : today;
+  return <CloseDay key={day} day={day} today={today} />;
+}
+
+function CloseDay({ day, today }) {
+  const { t, p, longDate } = useI();
+  const isToday = day === today;
+  const { data: d } = useDay(day);
   const workers = useWorkers().data;
   const act = useActions();
   const nav = useNavigate();
@@ -43,23 +52,33 @@ export default function Close() {
 
   if (!d || !workers || !form) return <PageSkeleton />;
 
+  const href = (i, dd = day) => `/funga/${i}${dd === today ? '' : `?siku=${dd}`}`;
+  const picker = (
+    <div style={{ minWidth: 190 }}>
+      <TextField type="date" label={t('Tarehe ya kujaza', 'Day to fill')} value={day} max={today} onChange={(v) => { if (v) nav(href(0, v)); }} />
+    </div>
+  );
+
   if (d.closed) {
+    const next = addDays(day, 1);
     return (
       <Page>
+        <header className="page-head"><div /> {picker}</header>
         <div className="empty" style={{ padding: 48 }}>
           <Lock size={36} weight="duotone" />
-          <h2 style={{ margin: '8px 0' }}>{t('Siku ya leo imefungwa', 'Today is closed')}</h2>
+          <h2 style={{ margin: '8px 0' }}>{isToday ? t('Siku ya leo imefungwa', 'Today is closed') : t(`${longDate(day, d.dow)} imefungwa`, `${longDate(day, d.dow)} is closed`)}</h2>
           <p style={{ marginBottom: 18 }}>{t('Marekebisho yafanywe kama rekodi mpya.', 'Corrections are added as new entries.')}</p>
-          <Link to="/" className="btn btn-primary">{t('Rudi Leo', 'Back to Today')}</Link>
+          {isToday ? <Link to="/" className="btn btn-primary">{t('Rudi Leo', 'Back to Today')}</Link>
+            : <Link to={href(0, next)} className="btn btn-primary">{t('Jaza siku inayofuata', 'Fill the next day')}<ArrowRight size={18} weight="bold" /></Link>}
         </div>
       </Page>
     );
   }
 
   const active = workers.filter((w) => w.active);
-  const go = (i) => nav(`/funga/${i}`);
+  const go = (i) => nav(href(i));
   const doneStep = (i) => d.visited.includes(i);
-  const mark = (i) => act.visit(today, i).catch(() => {});
+  const mark = (i) => act.visit(day, i).catch(() => {});
   const setSale = (s, k, v) => setForm((f) => ({ ...f, sales: { ...f.sales, [s]: { ...f.sales[s], [k]: v } } }));
   const salesBody = () => Object.fromEntries(SEC.map((s) => {
     const x = form.sales[s];
@@ -69,18 +88,18 @@ export default function Close() {
   const lockedAtt = d.attendance.filter((w) => w.locked);
   const attBody = () => Object.fromEntries(Object.entries(form.att).map(([k, v]) => [k, v]));
 
-  const props = { d, form, setForm, setSale, active, act, today, t, p };
+  const props = { d, form, setForm, setSale, active, act, day, isToday, t, p };
   const body = [
-    <SalesStep {...props} key="0" />, <DeliveriesStep {...props} key="1" />, <ExpensesStep {...props} key="2" />,
-    <CountStep {...props} key="3" />, <AttendanceStep {...props} lockedAtt={lockedAtt} key="4" />,
-    <FinishStep {...props} lockedAtt={lockedAtt} go={go} salesBody={salesBody} countBody={countBody} attBody={attBody} key="5" />,
+    <SalesStep {...props} key="0" />, <ExpensesStep {...props} key="1" />, <CountStep {...props} key="2" />,
+    <AttendanceStep {...props} lockedAtt={lockedAtt} key="3" />,
+    <FinishStep {...props} lockedAtt={lockedAtt} go={go} href={href} salesBody={salesBody} countBody={countBody} attBody={attBody} key="4" />,
   ][step];
 
   const saveAndNext = async () => {
     try {
-      if (step === 0) await act.saveSales(today, salesBody());
-      if (step === 3) await act.saveCount(today, countBody());
-      if (step === 4) await act.saveAttendance(today, attBody());
+      if (step === 0) await act.saveSales(day, salesBody());
+      if (step === 2) await act.saveCount(day, countBody());
+      if (step === 3) await act.saveAttendance(day, attBody());
       mark(step);
       go(step + 1);
     } catch (e) { toast.error(t('Imeshindwa kuhifadhi. Jaribu tena.', 'Could not save. Try again.')); }
@@ -89,7 +108,11 @@ export default function Close() {
   return (
     <Page>
       <header className="page-head">
-        <div><p className="muted">{t('Funga siku ya leo', "Close today's books")}</p><h1>{p(STEPS[step])}</h1></div>
+        <div>
+          <p className="muted">{isToday ? t('Funga siku ya leo', "Close today's books") : t(`Funga siku: ${longDate(day, d.dow)}`, `Close the books: ${longDate(day, d.dow)}`)}</p>
+          <h1>{p(STEPS[step])}</h1>
+        </div>
+        {picker}
       </header>
 
       <div className="stepper" role="list" aria-label={t('Hatua', 'Steps')}>
@@ -109,13 +132,13 @@ export default function Close() {
           initial="in" animate="on" exit="out" transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
         >
           <div className="step-card">{body}</div>
-          {step < 5 ? (
+          {step < LAST ? (
             <div className="wiz-nav">
               <Btn onClick={() => (step > 0 ? go(step - 1) : nav('/'))}><ArrowLeft size={18} weight="bold" />{step > 0 ? t('Nyuma', 'Back') : t('Leo', 'Today')}</Btn>
               <Btn className="btn-primary" onClick={saveAndNext}>{t('Endelea', 'Continue')}<ArrowRight size={18} weight="bold" /></Btn>
             </div>
           ) : (
-            <div className="wiz-nav"><Btn onClick={() => go(4)}><ArrowLeft size={18} weight="bold" />{t('Nyuma', 'Back')}</Btn><span /></div>
+            <div className="wiz-nav"><Btn onClick={() => go(LAST - 1)}><ArrowLeft size={18} weight="bold" />{t('Nyuma', 'Back')}</Btn><span /></div>
           )}
         </motion.div>
       </AnimatePresence>
@@ -124,12 +147,12 @@ export default function Close() {
 }
 
 /* ------------------------------------------------------------ 1. sales */
-function SalesStep({ d, form, setSale, active, t, p }) {
+function SalesStep({ d, form, setSale, active, isToday, t, p }) {
   const cashiers = [...active].sort((a, b) => (b.role === 'keshia') - (a.role === 'keshia'));
   const total = sum(SEC, (s) => (form.sales[s].cash || 0) + (form.sales[s].mobile || 0));
   return (
     <>
-      <header><h2>{t('Mauzo ya leo', "Today's sales")}</h2><p className="muted">{t('Andika jumla ya pesa taslimu na pesa za simu kwa kila sehemu.', 'Enter the cash and mobile money totals for each section.')}</p></header>
+      <header><h2>{isToday ? t('Mauzo ya leo', "Today's sales") : t('Mauzo ya siku', "The day's sales")}</h2><p className="muted">{t('Andika jumla ya pesa taslimu na pesa za simu kwa kila sehemu.', 'Enter the cash and mobile money totals for each section.')}</p></header>
       <div className="grid-2">
         {SEC.map((s) => (
           <div className="section-block" key={s}>
@@ -150,64 +173,12 @@ function SalesStep({ d, form, setSale, active, t, p }) {
   );
 }
 
-/* ------------------------------------------------------------ 2. deliveries */
-function DeliveriesStep({ d, active, act, today, t, p }) {
-  const fail = useErr();
-  const [worker, setWorker] = useState('');
-  const [section, setSection] = useState('mgahawa');
-  const [amount, setAmount] = useState(null);
-  const [method, setMethod] = useState('cash');
-  const [busy, setBusy] = useState(false);
-  const add = async (e) => {
-    e.preventDefault();
-    if (!worker || !amount) { toast.warning(t('Chagua mfanyakazi na andika kiasi.', 'Choose the worker and enter the amount.')); return; }
-    setBusy(true);
-    try { await act.addDelivery(today, { worker_id: Number(worker), section, amount, method }); setAmount(null); toast.success(t('Delivery imeandikwa.', 'Delivery saved.')); }
-    catch (ex) { fail(ex); } finally { setBusy(false); }
-  };
-  return (
-    <>
-      <header><h2>{t('Delivery za leo', "Today's deliveries")}</h2><p className="muted">{t('Wapishi wanapeleka wenyewe. Delivery ni bure kwa mteja.', 'Cooks deliver themselves. Delivery is free for the customer.')}</p></header>
-      {d.deliveries.length === 0 ? <Empty>{t('Hakuna delivery leo.', 'No deliveries today.')}</Empty> : (
-        <ul className="list" style={{ marginBottom: 22 }}>
-          {d.deliveries.map((x) => (
-            <li key={x.id}>
-              <Chip tone={x.method === 'cash' ? 'warn' : 'info'}>{x.method === 'cash' ? t('Taslimu', 'Cash') : t('Simu', 'Mobile')}</Chip>
-              <span className="li-main"><strong>{x.worker_name}</strong><span>{p(SECTIONS[x.section])}{x.method === 'mobile' ? ` · ${t('Hakuna cha kukabidhi', 'Nothing to hand in')}` : ''}</span></span>
-              <span className="li-amt">{tsh(x.amount)}</span>
-              {x.method === 'cash' ? (x.handed_in ? <Chip tone="good"><Check size={12} weight="bold" />{t('Imekabidhiwa', 'Handed in')}</Chip>
-                : <Btn className="btn-quiet btn-small" onClick={() => act.handIn([x.id]).catch(fail)}>{t('Amekabidhi', 'Handed in')}</Btn>) : null}
-              <button type="button" className="icon-plain" aria-label={t('Futa', 'Delete')} onClick={() => act.delDelivery(x.id).catch(fail)}><Trash size={18} weight="duotone" /></button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <form className="section-block stack" onSubmit={add}>
-        <h3>{t('Ongeza delivery', 'Add a delivery')}</h3>
-        <div className="grid-2">
-          <SelectField label={t('Aliyepeleka', 'Taken by')} value={worker} onChange={setWorker}>
-            <option value="">{t('— Chagua —', '— Choose —')}</option>
-            {[...active].sort((a, b) => (b.role === 'mpishi') - (a.role === 'mpishi')).map((w) => <option key={w.id} value={w.id}>{w.name} ({p(ROLES[w.role])})</option>)}
-          </SelectField>
-          <MoneyInput label={t('Kiasi cha oda', 'Order amount')} value={amount} onChange={setAmount} />
-        </div>
-        <div className="row">
-          <div className="field"><span className="field-label">{t('Sehemu', 'Section')}</span><Seg label={t('Sehemu', 'Section')} value={section} onChange={setSection} options={SEC.map((s) => [s, p(SECTIONS[s])])} /></div>
-          <div className="field"><span className="field-label">{t('Mteja alilipa', 'Customer paid')}</span><Seg label={t('Mteja alilipa', 'Customer paid')} value={method} onChange={setMethod} options={[['cash', t('Taslimu', 'Cash')], ['mobile', t('Simu', 'Mobile money')]]} /></div>
-        </div>
-        {method === 'cash' ? <Callout tone="info">{t('Mpishi anadaiwa pesa hii hadi akabidhi kwa keshia.', 'The cook owes this cash until it is handed to the cashier.')}</Callout> : null}
-        <div><Btn type="submit" className="btn-primary" loading={busy}>{t('Weka delivery', 'Add delivery')}</Btn></div>
-      </form>
-    </>
-  );
-}
-
-/* ------------------------------------------------------------ 3. expenses */
-function ExpensesStep({ d, act, today, t, p }) {
+/* ------------------------------------------------------------ 2. expenses */
+function ExpensesStep({ d, act, day, isToday, t, p }) {
   const fail = useErr();
   return (
     <>
-      <header><h2>{t('Matumizi ya leo', "Today's expenses")}</h2><p className="muted">{t('Ikilipwa kutoka droo, hupunguza pesa inayotarajiwa kwenye hatua inayofuata.', 'Paid from a till, it lowers that till’s expected cash in the next step.')}</p></header>
+      <header><h2>{isToday ? t('Matumizi ya leo', "Today's expenses") : t('Matumizi ya siku', "The day's expenses")}</h2><p className="muted">{t('Ikilipwa kutoka droo, hupunguza pesa inayotarajiwa kwenye hatua inayofuata.', 'Paid from a till, it lowers that till’s expected cash in the next step.')}</p></header>
       {d.expenses.length === 0 ? <Empty>{t('Hakuna matumizi yaliyoandikwa.', 'No expenses recorded yet.')}</Empty> : (
         <ul className="list" style={{ marginBottom: 22 }}>
           {d.expenses.map((e) => (
@@ -220,16 +191,16 @@ function ExpensesStep({ d, act, today, t, p }) {
           ))}
         </ul>
       )}
-      <div className="section-block"><h3>{t('Ongeza matumizi', 'Add an expense')}</h3><ExpenseForm date={today} /></div>
+      <div className="section-block"><h3>{t('Ongeza matumizi', 'Add an expense')}</h3><ExpenseForm date={day} /></div>
     </>
   );
 }
 
-/* ------------------------------------------------------------ 4. cash count */
+/* ------------------------------------------------------------ 3. cash count */
 export function cashMath(d, form, s) {
   const x = d.sections[s];
   const cash = form.sales[s].cash || 0;
-  const expected = cash - x.undelivered - x.payouts;
+  const expected = cash - x.payouts;
   const counted = form.count[s];
   const diff = counted == null ? null : counted - x.float - expected;
   return { ...x, cash, expected, counted, diff };
@@ -248,8 +219,7 @@ function CountStep({ d, form, setForm, active, t, p }) {
               <h3>{p(SECTIONS[s])}</h3>
               <div className="ledger flat">
                 <Leader label={t('Mauzo ya taslimu', 'Cash sales')} value={tsh(c.cash)} />
-                <Leader label={t('Delivery haijakabidhiwa', 'Delivery not handed in')} value={`− ${tsh(c.undelivered)}`} />
-                <Leader label={t('Imetoka droo leo', 'Paid out of the till')} value={`− ${tsh(c.payouts)}`} />
+                <Leader label={t('Imetoka droo', 'Paid out of the till')} value={`− ${tsh(c.payouts)}`} />
                 <Leader strong label={t('Pesa inayotarajiwa', 'Expected cash')} value={tsh(c.expected)} />
               </div>
               <div style={{ margin: '14px 0' }}>
@@ -273,7 +243,7 @@ function CountStep({ d, form, setForm, active, t, p }) {
   );
 }
 
-/* ------------------------------------------------------------ 5. attendance */
+/* ------------------------------------------------------------ 4. attendance */
 function AttendanceStep({ d, form, setForm, lockedAtt, t, p }) {
   const open = d.attendance.filter((w) => !w.locked);
   const set = (id, v) => setForm((f) => ({ ...f, att: { ...f.att, [id]: v } }));
@@ -304,8 +274,8 @@ function AttendanceStep({ d, form, setForm, lockedAtt, t, p }) {
   );
 }
 
-/* ------------------------------------------------------------ 6. finish */
-function FinishStep({ d, form, active, act, today, t, p, lockedAtt, go, salesBody, countBody, attBody }) {
+/* ------------------------------------------------------------ 5. finish */
+function FinishStep({ d, form, active, act, day, isToday, t, p, lockedAtt, go, href, salesBody, countBody, attBody }) {
   const nav = useNavigate();
   const fail = useErr();
   const [busy, setBusy] = useState(false);
@@ -318,20 +288,20 @@ function FinishStep({ d, form, active, act, today, t, p, lockedAtt, go, salesBod
   const close = async () => {
     setBusy(true);
     try {
-      await act.saveSales(today, salesBody());
-      await act.saveCount(today, countBody());
-      if (Object.keys(attBody()).length) await act.saveAttendance(today, attBody());
-      const r = await act.closeDay(today);
+      await act.saveSales(day, salesBody());
+      await act.saveCount(day, countBody());
+      if (Object.keys(attBody()).length) await act.saveAttendance(day, attBody());
+      const r = await act.closeDay(day);
       confetti({ particleCount: 110, spread: 75, origin: { y: 0.7 }, colors: ['#e3b655', '#14916f', '#ffffff', '#0b5d49'], disableForReducedMotion: true });
-      toast.success(t('Siku imefungwa. Kazi nzuri!', 'The day is closed. Well done!'));
+      toast.success(isToday ? t('Siku imefungwa. Kazi nzuri!', 'The day is closed. Well done!') : t('Siku imefungwa. Sasa jaza siku inayofuata.', 'The day is closed. Now fill the next day.'));
       r.shortages.forEach((s) => toast.warning(t(`Upungufu wa ${tsh(s.amount)} umeandikwa kwenye akaunti ya ${s.worker_name}.`, `The ${tsh(s.amount)} shortage was added to ${s.worker_name}'s account.`), { duration: 8000 }));
-      nav('/');
+      nav(isToday ? '/' : href(0, addDays(day, 1)));
     } catch (e) { fail(e); } finally { setBusy(false); }
   };
 
   return (
     <>
-      <header><h2>{t('Funga siku ya leo', "Close today's books")}</h2><p className="muted">{t('Kagua muhtasari kabla ya kufunga. Siku iliyofungwa haibadilishwi.', 'Review the summary. A closed day cannot be edited.')}</p></header>
+      <header><h2>{isToday ? t('Funga siku ya leo', "Close today's books") : t('Funga siku hii', "Close this day's books")}</h2><p className="muted">{t('Kagua muhtasari kabla ya kufunga. Siku iliyofungwa haibadilishwi.', 'Review the summary. A closed day cannot be edited.')}</p></header>
       <div className="summary-grid">
         <div className="section-block">
           <h3>{t('Mauzo', 'Sales')}</h3>
@@ -345,7 +315,6 @@ function FinishStep({ d, form, active, act, today, t, p, lockedAtt, go, salesBod
           <h3>{t('Pesa na watu', 'Cash and people')}</h3>
           <div className="ledger flat">
             <Leader label={t('Matumizi', 'Expenses')} value={tsh(d.expenses_total)} />
-            <Leader label={t('Delivery bado inadaiwa', 'Delivery cash still owed')} value={tsh(sum(d.owed, (o) => o.amount))} />
             {SEC.map((s) => { const c = cashMath(d, form, s); return <Leader key={s} label={`${t('Tofauti', 'Difference')}: ${p(SECTIONS[s])}`} tone={c.diff == null ? undefined : c.diff === 0 ? 'good' : c.diff < 0 ? 'bad' : 'warn'} value={c.diff == null ? '—' : c.diff === 0 ? tsh(0) : `${c.diff < 0 ? '−' : '+'}${num(Math.abs(c.diff))}`} />; })}
             <Leader label={t('Waliohudhuria', 'Present')} value={`${present} / ${d.attendance.length - lockedAtt.length}`} />
           </div>
@@ -358,11 +327,11 @@ function FinishStep({ d, form, active, act, today, t, p, lockedAtt, go, salesBod
               : <>{t('Chagua keshia wa siku kwa', 'Choose the cashier of the day for')} {p(SECTIONS[s])}.</>}
           </Callout>
         ))}
-        {missing.length ? <Callout tone="warn">{t('Hawajaandikwa:', 'Not marked yet:')} <strong>{missing.map((w) => w.name).join(', ')}</strong>. <button type="button" className="btn-ghost" onClick={() => go(4)}>{t('Nenda kwenye mahudhurio', 'Go to attendance')}</button></Callout> : null}
+        {missing.length ? <Callout tone="warn">{t('Hawajaandikwa:', 'Not marked yet:')} <strong>{missing.map((w) => w.name).join(', ')}</strong>. <button type="button" className="btn-ghost" onClick={() => go(3)}>{t('Nenda kwenye mahudhurio', 'Go to attendance')}</button></Callout> : null}
       </div>
       <div style={{ marginTop: 24 }}>
         <Btn className="btn-primary btn-block" style={{ minHeight: 56, fontSize: '1.05rem' }} loading={busy} disabled={missing.length > 0 || noCashier} onClick={close}>
-          <Lock size={20} weight="bold" />{t('Funga siku ya leo', 'Close today')}
+          <Lock size={20} weight="bold" />{isToday ? t('Funga siku ya leo', 'Close today') : t('Funga siku hii', 'Close this day')}
         </Btn>
       </div>
     </>

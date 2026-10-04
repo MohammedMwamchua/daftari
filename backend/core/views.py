@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from . import exports, services as svc
 from .errors import Conflict
 from .models import (
-    SECTIONS, Advance, Attendance, Day, Delivery, Expense, ExpenseCategory, LeaveRecord, SalaryLine, Settings,
+    SECTIONS, Advance, Attendance, Day, Expense, ExpenseCategory, LeaveRecord, SalaryLine, Settings,
     Shortage, Worker,
 )
 
@@ -58,14 +58,13 @@ def pchoice(data, key, choices, required=True, default=None):
     return v
 
 
-def worker_json(w, owed=None, unpaid=None):
-    owed = svc.owed_by_worker() if owed is None else owed
+def worker_json(w, unpaid=None):
     unpaid = svc.unpaid_salary_by_worker() if unpaid is None else unpaid
     return {
         'id': w.id, 'name': w.name, 'role': w.role, 'phone': w.phone, 'pay_type': w.pay_type, 'rate': w.rate,
         'day_off': w.day_off, 'joined_on': w.joined_on.isoformat(), 'active': w.active,
         'removed_on': w.removed_on.isoformat() if w.removed_on else None, 'removed_reason': w.removed_reason,
-        'owed': owed.get(w.id, 0), 'company_owes': unpaid.get(w.id, 0),
+        'company_owes': unpaid.get(w.id, 0),
     }
 
 
@@ -216,9 +215,8 @@ class WorkersView(APIView):
             qs = qs.filter(active=True)
         elif flag in ('false', '0'):
             qs = qs.filter(active=False)
-        owed = svc.owed_by_worker()
         unpaid = svc.unpaid_salary_by_worker()
-        return Response([worker_json(w, owed, unpaid) for w in qs])
+        return Response([worker_json(w, unpaid) for w in qs])
 
     def post(self, request):
         w = Worker(created_by=request.user)
@@ -246,9 +244,6 @@ class WorkerRemoveView(APIView):
     @transaction.atomic
     def post(self, request, pk):
         w = get_object_or_404(Worker, pk=pk)
-        owed = svc.owed_by_worker().get(w.id, 0)
-        if owed:
-            raise Conflict('delivery_cash_owed', 'This worker still owes delivery cash.', owed=owed)
         w.active = False
         w.removed_on = svc.today()
         w.removed_reason = pchoice(request.data, 'reason', ['left', 'ended', 'other'], default='other')
@@ -370,37 +365,6 @@ class DayCashCountView(APIView):
         return Response(svc.day_payload(d))
 
 
-class DayDeliveriesView(APIView):
-    def post(self, request, d):
-        d = pdate(d)
-        svc.require_open(d)
-        day = svc.get_day(d)
-        w = get_object_or_404(Worker, pk=pint(request.data, 'worker_id', minimum=1), active=True)
-        Delivery.objects.create(
-            day=day, worker=w, section=pchoice(request.data, 'section', SECTIONS),
-            amount=pint(request.data, 'amount', minimum=1), method=pchoice(request.data, 'method', ['cash', 'mobile']),
-            handed_in=request.data.get('method') == 'mobile', created_by=request.user)
-        return Response(svc.day_payload(d), status=201)
-
-
-class DeliveryView(APIView):
-    def patch(self, request, pk):
-        x = get_object_or_404(Delivery.objects.select_related('day'), pk=pk)
-        if x.method == 'cash':
-            x.handed_in = bool(request.data.get('handed_in', True))
-            x.handed_in_at = timezone.now() if x.handed_in else None
-            x.save()
-            svc.audit(request.user, 'delivery.handed_in', x.id, worker=x.worker_id, amount=x.amount, value=x.handed_in)
-        return Response(svc.day_payload(x.day.date))
-
-    def delete(self, request, pk):
-        x = get_object_or_404(Delivery.objects.select_related('day'), pk=pk)
-        svc.require_open(x.day.date)
-        d = x.day.date
-        x.delete()
-        return Response(svc.day_payload(d))
-
-
 class DayAttendanceView(APIView):
     @transaction.atomic
     def put(self, request, d):
@@ -421,12 +385,17 @@ class DayVisitView(APIView):
         d = pdate(d)
         day = svc.get_day(d)
         step = pint(request.data, 'step')
-        if step > 5:
-            raise ValidationError({'step': '0 to 5.'})
+        if step > 4:
+            raise ValidationError({'step': '0 to 4.'})
         if not day.closed and step not in day.visited:
             day.visited = sorted({*day.visited, step})
             day.save(update_fields=['visited'])
         return Response({'visited': day.visited})
+
+
+class DayPayView(APIView):
+    def get(self, request, d):
+        return Response(svc.day_pay(pdate(d)))
 
 
 class DayCloseView(APIView):
@@ -518,11 +487,10 @@ class MonthReportView(APIView):
 class DayReportView(APIView):
     def get(self, request, d):
         d = pdate(d)
-        data = svc.day_payload(d)
         fmt = request.query_params.get('file', 'json')
         lang = 'en' if request.query_params.get('lang') == 'en' else 'sw'
         if fmt == 'pdf':
-            return _file_response('pdf', f'mauzo-{d}', exports.day_pdf(data, lang))
+            return _file_response('pdf', f'mauzo-{d}', exports.day_pdf(svc.day_payload(d), lang))
         if fmt == 'xlsx':
-            return _file_response('xlsx', f'mauzo-{d}', exports.day_xlsx(data, lang))
-        return Response(data)
+            return _file_response('xlsx', f'mauzo-{d}', exports.day_xlsx(svc.day_payload(d), lang))
+        return Response(svc.day_report(d))

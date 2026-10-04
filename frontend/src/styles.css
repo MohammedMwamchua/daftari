@@ -544,3 +544,6 @@ a { color: inherit; }
 .amount-lg { font-family: var(--font-display); font-weight: 800; font-size: 1.6rem; }
 
 @media print { .rail, .topbar, .bottomnav { display: none !important; } }
+.day-panel { margin-bottom: 40px; padding-bottom: 32px; border-bottom: 2px solid var(--line); transition: opacity 0.2s; }
+.tbl tbody tr.sel { background: color-mix(in srgb, var(--brass-500) 12%, transparent); }
+.tbl tbody tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--brass-500); }

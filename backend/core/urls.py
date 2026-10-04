@@ -26,12 +26,11 @@ urlpatterns = [
 
     path('days/<str:d>/', v.DayView.as_view()),
     path('days/<str:d>/sales/', v.DaySalesView.as_view()),
-    path('days/<str:d>/deliveries/', v.DayDeliveriesView.as_view()),
     path('days/<str:d>/cash-count/', v.DayCashCountView.as_view()),
     path('days/<str:d>/attendance/', v.DayAttendanceView.as_view()),
     path('days/<str:d>/visit/', v.DayVisitView.as_view()),
     path('days/<str:d>/close/', v.DayCloseView.as_view()),
-    path('deliveries/<int:pk>/', v.DeliveryView.as_view()),
+    path('days/<str:d>/pay/', v.DayPayView.as_view()),
 
     path('expenses/', v.ExpensesView.as_view()),
     path('expenses/<int:pk>/', v.ExpenseView.as_view()),

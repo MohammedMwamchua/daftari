@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { ArrowCounterClockwise, CalendarPlus, CalendarX, CaretLeft, HandCoins, MagnifyingGlass, Plus, Trash, UserMinus, Warning } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, CalendarPlus, CalendarX, CaretLeft, HandCoins, MagnifyingGlass, Plus, Trash, UserMinus } from '@phosphor-icons/react';
 import { toast } from 'sonner';
-import { useAccount, useActions, useDay, useErr, useMeta, useWorker, useWorkers } from '../hooks.js';
+import { useAccount, useActions, useErr, useMeta, useWorker, useWorkers } from '../hooks.js';
 import { useI } from '../i18n.jsx';
 import { num, parseISO, sum, tsh } from '../format.js';
 import { REMOVE_REASONS, ROLES, SECTIONS, STATUS } from '../vocab.js';
@@ -44,7 +44,6 @@ export function WorkersList() {
                 </div>
                 <div className="chips">
                   <Chip tone="brass">{w.pay_type === 'monthly' ? t('Mshahara', 'Monthly') : t('Kila siku', 'Daily')}: {tsh(w.rate)}</Chip>
-                  {w.owed ? <Chip tone="warn"><Warning size={12} weight="fill" />{t('Anadaiwa', 'Owes')} {tsh(w.owed)}</Chip> : null}
                   {w.company_owes ? <Chip tone="bad"><HandCoins size={12} weight="fill" />{t('Haijalipwa', 'Unpaid')} {tsh(w.company_owes)}</Chip> : null}
                   {w.day_off == null ? <Chip tone="info"><CalendarX size={12} weight="bold" />{t('Hana siku ya mapumziko', 'No day off')}</Chip> : null}
                 </div>
@@ -153,7 +152,6 @@ export function WorkerDetail() {
               {w.joined_on > today ? t(`Anaanza ${fmtDate(w.joined_on)}`, `Starts ${fmtDate(w.joined_on)}`) : t(`Alijiunga ${fmtDate(w.joined_on)}`, `Joined ${fmtDate(w.joined_on)}`)}
             </Chip>
             {!w.active ? <Chip tone="bad">{t('Ameondolewa', 'Removed')}</Chip> : null}
-            {w.owed ? <Chip tone="warn"><Warning size={12} weight="fill" />{t('Anadaiwa', 'Owes')} {tsh(w.owed)}</Chip> : null}
             {w.company_owes ? <Chip tone="bad"><HandCoins size={12} weight="fill" />{t('Anaidai kampuni', 'Owed by the company')} {tsh(w.company_owes)}</Chip> : null}
             {w.day_off == null ? <Chip tone="info"><CalendarX size={12} weight="bold" />{t('Hana siku ya mapumziko', 'No day off')}</Chip> : null}
           </div>
@@ -232,31 +230,25 @@ function Overview({ w, today }) {
           </section>
         ) : null}
       </div>
-      <RemoveModal w={w} open={removing} onClose={() => setRemoving(false)} onDone={() => nav('/wafanyakazi')} today={today} />
+      <RemoveModal w={w} open={removing} onClose={() => setRemoving(false)} onDone={() => nav('/wafanyakazi')} />
     </div>
   );
 }
 
-function RemoveModal({ w, open, onClose, onDone, today }) {
+function RemoveModal({ w, open, onClose, onDone }) {
   const { t, p } = useI();
   const act = useActions();
   const fail = useErr();
-  const day = useDay(today).data;
   const [reason, setReason] = useState('left');
-  const row = day?.owed.find((o) => o.worker_id === w.id);
   const go = async () => {
     try { await act.removeWorker(w.id, reason); toast.success(t('Mfanyakazi ameondolewa.', 'Worker removed.')); onClose(); onDone(); } catch (e) { fail(e); }
   };
   return (
     <Modal open={open} onClose={onClose} title={t(`Ondoa ${w.name}?`, `Remove ${w.name}?`)} description={t('Atatoweka kwenye orodha za kila siku, lakini historia inabaki.', 'They leave the daily lists, but history stays.')}>
       <div className="stack">
-        {row ? (
-          <Callout tone="bad"><strong>{t('Hawezi kuondolewa bado.', 'Cannot be removed yet.')}</strong> {t(`Anadaiwa ${tsh(row.amount)} ya pesa ya delivery.`, `Still owes ${tsh(row.amount)} of delivery cash.`)}
-            <div style={{ marginTop: 10 }}><Btn className="btn-small" onClick={() => act.handIn(row.ids).then(() => toast.success(t('Imekabidhiwa.', 'Handed in.'))).catch(fail)}>{t('Amekabidhi', 'Handed in')}</Btn></div></Callout>
-        ) : null}
         <div className="field"><span className="field-label">{t('Sababu', 'Reason')}</span>
           <Seg full label={t('Sababu', 'Reason')} value={reason} onChange={setReason} options={Object.entries(REMOVE_REASONS).map(([k, v]) => [k, p(v)])} /></div>
-        <div className="actions"><Btn onClick={onClose}>{t('Ghairi', 'Cancel')}</Btn><Btn className="btn-danger-solid" disabled={!!row} onClick={go}>{t('Ndiyo, mwondoe', 'Yes, remove')}</Btn></div>
+        <div className="actions"><Btn onClick={onClose}>{t('Ghairi', 'Cancel')}</Btn><Btn className="btn-danger-solid" onClick={go}>{t('Ndiyo, mwondoe', 'Yes, remove')}</Btn></div>
       </div>
     </Modal>
   );
@@ -343,7 +335,6 @@ function AccountTab({ w, ym, today }) {
             <div><small>{t('Upungufu', 'Shortages')}</small><b>− {tsh(a.shortages)}</b></div>
           </div>
         </div>
-        {a.owed ? <Callout tone="warn">{t(`Bado anadaiwa ${tsh(a.owed)} ya pesa ya delivery.`, `Still owes ${tsh(a.owed)} of delivery cash.`)}</Callout> : null}
         {a.owed_by_company ? (
           <Callout tone="bad">
             <strong>{t(`Anaidai kampuni ${tsh(a.owed_by_company)}`, `Owed ${tsh(a.owed_by_company)} by the company`)}</strong>
