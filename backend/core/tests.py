@@ -1,6 +1,13 @@
+import io
+import sqlite3
+import tempfile
+from contextlib import closing
 from datetime import timedelta
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.test import TransactionTestCase
 from rest_framework.test import APITestCase
 
 from core import services as svc
@@ -280,3 +287,18 @@ class RulesTest(APITestCase):
         g = svc.salary_figures(self.cashier, ym, Settings.load().rules)
         absent = min(2, len(days))
         self.assertEqual(g['base'], 300000 - round(300000 / 30 * absent))
+
+
+class BackupTest(TransactionTestCase):
+    # Not wrapped in a test transaction: SQLite's backup waits for open write transactions to finish.
+    def test_backup_copies_the_data_and_keeps_the_newest(self):
+        Worker.objects.create(name='Rehema', role='keshia', pay_type='monthly', rate=300000, joined_on=svc.today())
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ('daftari-2026-01-01_000000.sqlite3', 'daftari-2026-01-02_000000.sqlite3'):
+                Path(tmp, name).write_bytes(b'')
+            call_command('backup_db', dir=tmp, keep=2, stdout=io.StringIO())
+            files = sorted(p.name for p in Path(tmp).glob('daftari-*.sqlite3'))
+            self.assertEqual(len(files), 2)
+            self.assertNotIn('daftari-2026-01-01_000000.sqlite3', files)  # the oldest was removed
+            with closing(sqlite3.connect(Path(tmp, files[-1]))) as db:
+                self.assertEqual(db.execute('select name from core_worker').fetchall(), [('Rehema',)])

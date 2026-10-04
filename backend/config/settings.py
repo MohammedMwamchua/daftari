@@ -76,6 +76,8 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+# Where `manage.py backup_db` writes dated copies of the SQLite database.
+BACKUP_DIR = Path(os.environ.get('BACKUP_DIR') or BASE_DIR.parent / 'backups')
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': ['rest_framework_simplejwt.authentication.JWTAuthentication'],

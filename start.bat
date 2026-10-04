@@ -40,6 +40,12 @@ findstr /r /c:"^USE_SQLITE=1" backend\.env >nul || (
   docker compose up -d || goto :fail
 )
 
+rem --- backup (SQLite only): a dated copy in BACKUP_DIR before anything touches the database
+if exist backend\db.sqlite3 findstr /r /c:"^USE_SQLITE=1" backend\.env >nul && (
+  echo Backing up the database...
+  "%PY%" backend\manage.py backup_db >nul || echo Warning: the database could not be backed up.
+)
+
 rem --- database (retries while PostgreSQL is still booting)
 echo Preparing the database...
 set /a tries=0
@@ -70,7 +76,7 @@ goto :ready
 start "" http://localhost:5173/
 echo.
 echo Daftari is running at http://localhost:5173
-echo Default login: manager / daftari123
+echo Login: manager  (first-time password: daftari123, change it under Mipangilio)
 echo To stop it, close the "Daftari backend" and "Daftari frontend" windows.
 echo.
 "%WAIT%" /t 10 2>nul

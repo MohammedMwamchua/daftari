@@ -21,6 +21,7 @@ The app is for the manager only: there is one login, and workers do not sign in.
 - [How the money is worked out](#how-the-money-is-worked-out)
 - [Rules the server enforces](#rules-the-server-enforces)
 - [Running it](#running-it)
+- [Backups](#backups)
 - [Configuration](#configuration)
 - [Project layout](#project-layout)
 - [API overview](#api-overview)
@@ -184,7 +185,7 @@ You need **Python 3.10+** and **Node.js 20.19+** (or 22.12+). **Docker** is opti
 
 ### Windows: one click
 
-Double-click **`start.bat`**. The first run installs everything. If Docker is missing, it uses SQLite instead of PostgreSQL. It then starts the backend and frontend in two windows and opens http://localhost:5173. Close those two windows to stop the app.
+Double-click **`start.bat`**. The first run installs everything. If Docker is missing, it uses SQLite instead of PostgreSQL. On every run it backs up the database (see [Backups](#backups)), then starts the backend and frontend in two windows and opens http://localhost:5173. Close those two windows to stop the app.
 
 ### By hand
 
@@ -214,6 +215,30 @@ npm run dev                         # http://localhost:5173
 
 ---
 
+## Backups
+
+When the app runs on SQLite, all of its data is in one file, `backend/db.sqlite3`. You can copy it with:
+
+```bash
+cd backend
+python manage.py backup_db
+```
+
+- **Where copies go:** each run writes a dated copy such as `daftari-2026-10-04_233000.sqlite3` to the `BACKUP_DIR` folder. If `BACKUP_DIR` is not set, copies go to `backups/` next to the project.
+- **How many are kept:** the newest 30 copies. Change this with `--keep`.
+- **Safe while the app is running:** the command uses SQLite's online backup, so the copy is consistent even if someone is saving at that moment.
+- **When it runs automatically:** `start.bat` makes a copy every time it starts the app. For a nightly copy on Windows, add a Task Scheduler task that runs `backend\.venv\Scripts\pythonw.exe manage.py backup_db -v 0` in the `backend` folder.
+- **Keep copies off the laptop:** point `BACKUP_DIR` at a cloud-synced folder, such as OneDrive or Google Drive. Copies kept on the same laptop are lost if the laptop is.
+- **Restoring a copy:**
+  1. Stop the app.
+  2. Copy the backup file over `backend/db.sqlite3`.
+  3. Start the app again.
+- **Never in git:** `backups/` is listed in `.gitignore`, so copies are never committed.
+
+On PostgreSQL, use `pg_dump` instead.
+
+---
+
 ## Configuration
 
 The backend reads `backend/.env`. The file [`backend/.env.example`](backend/.env.example) lists every setting.
@@ -225,6 +250,7 @@ The backend reads `backend/.env`. The file [`backend/.env.example`](backend/.env
 | `ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated host names |
 | `CORS_ORIGINS` | `http://localhost:5173,…` | Where the frontend is served from |
 | `USE_SQLITE` | unset | `1` uses `backend/db.sqlite3` instead of PostgreSQL |
+| `BACKUP_DIR` | `backups/` | Folder where `backup_db` saves its copies |
 | `POSTGRES_DB` / `_USER` / `_PASSWORD` / `_HOST` / `_PORT` | `daftari` … `5432` | PostgreSQL connection |
 
 The frontend sends its API calls to `/api`. During development, Vite forwards those calls to `http://127.0.0.1:8000`. To use a different API address, set `VITE_API_URL` when building the frontend.
@@ -245,6 +271,7 @@ backend/                  Django 5 + Django REST Framework
     views.py, urls.py     thin REST endpoints
     exports.py            PDF (reportlab) and Excel (openpyxl) reports
     management/commands/seed_demo.py   login, categories, settings and optional demo data
+    management/commands/backup_db.py   dated copies of the SQLite database
     tests.py              rule tests (cash difference, closing, salaries, reports)
 frontend/                 React 19 + Vite
   src/pages/              Leo, Close (Funga siku), Workers, Money (Fedha), Settings, Login
