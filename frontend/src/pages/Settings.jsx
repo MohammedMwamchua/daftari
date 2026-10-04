@@ -127,7 +127,8 @@ function PasswordTab() {
       setCurrent(''); setNext(''); setConfirm(''); setDone(true);
       toast.success(t('Nenosiri limebadilishwa.', 'Password changed.'));
     } catch (ex) {
-      if (ex.code === 'wrong_password') setErrors([t('Nenosiri la sasa si sahihi.', 'Your current password is wrong.')]);
+      if (ex.code === 'demo_mode') setErrors([t('Huwezi kubadilisha nenosiri kwenye toleo hili la majaribio.', 'The password cannot be changed in this public demo.')]);
+      else if (ex.code === 'wrong_password') setErrors([t('Nenosiri la sasa si sahihi.', 'Your current password is wrong.')]);
       else if (ex.data?.errors?.new_password) setErrors(ex.data.errors.new_password.map((code) => PASSWORD_CODE[code] || PASSWORD_CODE.password_invalid));
       else setErrors([t('Imeshindwa kubadilisha nenosiri. Jaribu tena.', 'Could not change the password. Try again.')]);
     } finally { setBusy(false); }

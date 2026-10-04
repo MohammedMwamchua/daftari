@@ -305,7 +305,19 @@ Every endpoint is under `/api/` and needs a `Bearer` token, except login.
 
 ## Going to production
 
-The repository does not include a deployment setup yet. These are the parts to set up:
+### Public demo
+
+[`render.yaml`](render.yaml) and the [`Dockerfile`](Dockerfile) run a public demo as one free Render web service. In Render, choose **New > Blueprint** and pick this repository.
+
+- Django serves the API and the built frontend from the same address.
+- Each start creates a fresh SQLite database with three months of sample data (`seed_demo --demo`). Render's free disk is wiped on restart, so the demo resets itself.
+- The sign-in screen shows a demo notice with the login (`manager` / `daftari123`) filled in, and `DEMO_MODE=1` stops visitors changing the password.
+
+This setup is for showing the app, not for real books: the data does not survive a restart.
+
+### A real deployment
+
+The repository does not include a setup for a real deployment yet. These are the parts to set up:
 
 1. In `backend/.env`, set `DEBUG=0`, a long random `SECRET_KEY`, your domain in `ALLOWED_HOSTS`, and the frontend's address in `CORS_ORIGINS`. Use PostgreSQL rather than SQLite.
 2. Run `python manage.py migrate` and `python manage.py collectstatic`. Then serve the backend with `gunicorn config.wsgi`. WhiteNoise serves the admin's static files.

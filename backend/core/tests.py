@@ -85,6 +85,13 @@ class RulesTest(APITestCase):
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password('NewPass123!'))
 
+    def test_demo_mode_blocks_password_change(self):
+        with self.settings(DEMO_MODE=True):
+            r = self.client.post('/api/auth/change-password/', {'current_password': 'x', 'new_password': 'NewPass123!'}, format='json')
+        self.assertEqual((r.status_code, r.data['code']), (409, 'demo_mode'))
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('x'))
+
     def test_category_delete(self):
         r = self.client.post('/api/categories/', {'name_sw': 'Usafi', 'name_en': 'Cleaning'}, format='json')
         cat_id = r.data['id']

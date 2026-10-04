@@ -13,6 +13,15 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-only-insecure-key-change-me-in-pr
 if not DEBUG and SECRET_KEY.startswith('dev-only'):
     raise RuntimeError('Set SECRET_KEY when DEBUG=0')
 ALLOWED_HOSTS = [h for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h]
+# Render sets this to the service's public hostname.
+if render_host := os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
+    ALLOWED_HOSTS.append(render_host)
+    CSRF_TRUSTED_ORIGINS = [f'https://{render_host}']
+
+# Public demo (Dockerfile + render.yaml): Django also serves the built frontend
+# from FRONTEND_DIST, and DEMO_MODE stops visitors changing the shared password.
+DEMO_MODE = os.environ.get('DEMO_MODE') == '1'
+FRONTEND_DIST = os.environ.get('FRONTEND_DIST', '')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -75,6 +84,8 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+if FRONTEND_DIST:
+    WHITENOISE_ROOT = FRONTEND_DIST
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Where `manage.py backup_db` writes dated copies of the SQLite database.
 BACKUP_DIR = Path(os.environ.get('BACKUP_DIR') or BASE_DIR.parent / 'backups')
