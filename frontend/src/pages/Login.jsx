@@ -6,10 +6,13 @@ import { useI } from '../i18n.jsx';
 import { Btn, Callout, Logo, TextField } from '../components/ui.jsx';
 import { Tools } from '../components/Tools.jsx';
 
+// Set by the public demo build (Dockerfile). The demo login comes from `seed_demo`.
+const DEMO = import.meta.env.VITE_DEMO === '1';
+
 export default function Login({ onDone, theme, toggle }) {
   const { t } = useI();
-  const [user, setUser] = useState('');
-  const [pass, setPass] = useState('');
+  const [user, setUser] = useState(DEMO ? 'manager' : '');
+  const [pass, setPass] = useState(DEMO ? 'daftari123' : '');
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -47,6 +50,12 @@ export default function Login({ onDone, theme, toggle }) {
         <div className="tools"><Tools theme={theme} toggle={toggle} /></div>
         <motion.form onSubmit={submit} noValidate initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}>
           <div><p className="eyebrow">{t('Karibu tena', 'Welcome back')}</p><h1 style={{ fontSize: '2.2rem', marginTop: 6 }}>{t('Ingia kama meneja', 'Sign in as manager')}</h1></div>
+          {DEMO ? (
+            <Callout tone="info">
+              {t('Hili ni toleo la majaribio. Jina na nenosiri vimeshajazwa, bonyeza Ingia. Taarifa zote ni za mfano na zinarudi mwanzo seva inapoanza upya.',
+                'This is a public demo. The login is filled in, so just press Sign in. All data is sample data and resets whenever the server restarts.')}
+            </Callout>
+          ) : null}
           <TextField label={t('Jina la mtumiaji', 'Username')} value={user} onChange={setUser} autoComplete="username" autoFocus required />
           <label className="field">
             <span className="field-label">{t('Nenosiri', 'Password')}</span>

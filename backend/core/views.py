@@ -1,5 +1,6 @@
 from datetime import date as date_cls
 
+from django.conf import settings as django_settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -91,6 +92,8 @@ class MeView(APIView):
 
 class ChangePasswordView(APIView):
     def post(self, request):
+        if django_settings.DEMO_MODE:
+            raise Conflict('demo_mode', 'The password cannot be changed in the public demo.')
         u = request.user
         current = request.data.get('current_password') or ''
         new = request.data.get('new_password') or ''

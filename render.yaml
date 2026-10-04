@@ -1,0 +1,13 @@
+# Render Blueprint for the public demo: one free web service built from the Dockerfile.
+# In Render, choose New > Blueprint and pick this repository.
+services:
+  - type: web
+    name: daftari-demo
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
