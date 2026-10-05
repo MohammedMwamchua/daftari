@@ -15,7 +15,9 @@ export const useAccount = (id, month) => useQuery(q(['account', id, month], `/wo
 export const useSalary = (ym) => useQuery(q(['salary', ym], `/salary/${ym}/`));
 export const useReport = (ym) => useQuery(q(['report', ym], `/reports/month/${ym}/`));
 export const useExpenses = (ym) => useQuery(q(['expenses', ym], `/expenses/?month=${ym}`));
-export const useOpinions = () => useQuery(q(['opinions'], '/opinions/', { refetchInterval: 60_000 }));
+/* the inbox, a page at a time: who = all|customer|worker, only = all|unread */
+export const useOpinions = (who, only, limit) => useQuery(q(['opinions', who, only, limit],
+  `/opinions/?source=${who}&unread=${only === 'unread' ? 1 : 0}&limit=${limit}`, { refetchInterval: 60_000, placeholderData: keepPreviousData }));
 /* the menu badge: checks for new opinions every minute */
 export const useOpinionsUnread = () => useQuery(q(['opinions-unread'], '/opinions/unread/', { refetchInterval: 60_000 }));
 

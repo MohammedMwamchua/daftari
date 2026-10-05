@@ -18,6 +18,8 @@ COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./
 COPY --from=frontend /app/dist /app/frontend-dist
+# gzip copies of the built screens; WhiteNoise sends them to every browser that accepts gzip
+RUN python -m whitenoise.compress /app/frontend-dist
 
 ENV DEBUG=0 \
     USE_SQLITE=1 \

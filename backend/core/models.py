@@ -119,7 +119,7 @@ class DaySection(Stamped):
 class Attendance(Stamped):
     STATUS = [('present', 'Present'), ('late', 'Late'), ('absent', 'Absent')]
     worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='attendance')
-    date = models.DateField()
+    date = models.DateField(db_index=True)  # day and month pages filter by date across all workers
     status = models.CharField(max_length=8, choices=STATUS)
 
     class Meta:
@@ -128,7 +128,7 @@ class Attendance(Stamped):
 
 class Expense(Stamped):
     FROM = [('droo', 'Till'), ('simu', 'Mobile money'), ('other', 'Other')]
-    date = models.DateField()
+    date = models.DateField(db_index=True)  # day and month pages filter by date across all workers
     category = models.ForeignKey(ExpenseCategory, on_delete=models.PROTECT, related_name='expenses')
     amount = models.BigIntegerField()
     reason = models.CharField(max_length=200)
@@ -143,7 +143,7 @@ class DailyPayment(Stamped):
     """What a daily-paid worker was handed for one day, typed in by hand when the day is closed.
     This is their pay: it is not a deduction from any monthly salary."""
     worker = models.ForeignKey(Worker, on_delete=models.PROTECT, related_name='daily_payments')
-    date = models.DateField()
+    date = models.DateField(db_index=True)  # day and month pages filter by date across all workers
     amount = models.BigIntegerField()
     paid_from = models.CharField(max_length=6, choices=Expense.FROM)
     section = models.CharField(max_length=8, choices=SECTION_CHOICES, blank=True)
@@ -155,7 +155,7 @@ class DailyPayment(Stamped):
 
 class Advance(Stamped):
     worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='advances')
-    date = models.DateField()
+    date = models.DateField(db_index=True)  # day and month pages filter by date across all workers
     amount = models.BigIntegerField()
 
     class Meta:
@@ -166,7 +166,7 @@ class Shortage(Stamped):
     SOURCES = [('cash_count', 'Cash count'), ('manual', 'Written by manager')]
     STATUS = [('applied', 'Applied'), ('waived', 'Waived')]
     worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='shortages')
-    date = models.DateField()
+    date = models.DateField(db_index=True)  # day and month pages filter by date across all workers
     amount = models.BigIntegerField()
     section = models.CharField(max_length=8, choices=SECTION_CHOICES, blank=True)
     source = models.CharField(max_length=12, choices=SOURCES)
@@ -217,7 +217,7 @@ class Opinion(models.Model):
     MESSAGE_MAX = 1000
     CONTACT_MAX = 100
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)  # the inbox lists newest first
     source = models.CharField(max_length=8, choices=SOURCES)
     topic = models.CharField(max_length=12, choices=TOPICS, default='other')
     rating = models.PositiveSmallIntegerField(null=True, blank=True, help_text='1 to 5 stars, optional')

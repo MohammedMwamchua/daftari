@@ -7,7 +7,8 @@ import { useAccount, useActions, useErr, useMeta, useWorker, useWorkers } from '
 import { useI } from '../i18n.jsx';
 import { num, parseISO, sum, tsh } from '../format.js';
 import { PAID_FROM, REMOVE_REASONS, ROLES, SECTIONS, STATUS } from '../vocab.js';
-import { Avatar, Btn, Callout, Chip, Empty, Leader, Modal, MoneyInput, Page, PageSkeleton, Rise, Seg, SelectField, Tabs, TextField } from '../components/ui.jsx';
+import { Avatar, Btn, Callout, Chip, Empty, Leader, MoneyInput, Page, PageSkeleton, Rise, Seg, SelectField, Tabs, TextField } from '../components/ui.jsx';
+import { Modal } from '../components/Modal.jsx';
 
 /* ------------------------------------------------------------ list */
 export function WorkersList() {

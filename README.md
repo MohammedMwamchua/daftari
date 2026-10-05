@@ -82,7 +82,7 @@ Customers and workers can send their opinions through a public form at **`/toa-m
 - **Anonymous by default:** nothing that identifies the sender is stored unless they write a name or number themselves.
 - **Spam protection:** messages are limited to 1,000 characters, one device can send at most 20 an hour, and a hidden field catches simple bots.
 
-The manager reads everything on the **Maoni** page: unread count in the menu, totals and the average star rating, filters (customers or workers, new only), mark as read or new, mark all read, and delete.
+The manager reads everything on the **Maoni** page, 50 at a time with *Onyesha zaidi* for more: unread count in the menu, totals and the average star rating, filters (customers or workers, new only), mark as read or new, mark all read, and delete.
 
 ### Mipangilio (Settings)
 - the fixed **change float** kept in each till
@@ -306,7 +306,7 @@ Every endpoint is under `/api/` and needs a `Bearer` token, except login and the
 | Money | `expenses/?month=`, `advances/`, `shortages/<id>/` |
 | Salaries | `GET salary/<yyyy-mm>/`, `POST …/approve/`, `POST salary-lines/<id>/paid/` |
 | Reports | `GET reports/month/<yyyy-mm>/` and `GET reports/day/<date>/`, with `?file=pdf\|xlsx&lang=sw\|en` to download |
-| Feedback | `POST opinions/submit/` (public, no token), `GET opinions/`, `GET opinions/unread/`, `POST opinions/read-all/`, `PATCH/DELETE opinions/<id>/` |
+| Feedback | `POST opinions/submit/` (public, no token), `GET opinions/?source=&unread=&limit=` (newest first, with `has_more`), `GET opinions/unread/`, `POST opinions/read-all/`, `PATCH/DELETE opinions/<id>/` |
 
 ---
 

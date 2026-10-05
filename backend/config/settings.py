@@ -70,6 +70,9 @@ else:
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'daftari'),
         'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        # keep each connection open between requests instead of reconnecting every time
+        'CONN_MAX_AGE': int(os.environ.get('CONN_MAX_AGE', '60')),
+        'CONN_HEALTH_CHECKS': True,
     }}
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -86,6 +89,8 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 if FRONTEND_DIST:
     WHITENOISE_ROOT = FRONTEND_DIST
+    # Vite names every file in assets/ after a hash of its content, so browsers may keep them for good
+    WHITENOISE_IMMUTABLE_FILE_TEST = r'^/assets/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Where `manage.py backup_db` writes dated copies of the SQLite database.
 BACKUP_DIR = Path(os.environ.get('BACKUP_DIR') or BASE_DIR.parent / 'backups')

@@ -1,18 +1,19 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { ArrowSquareOut, ChatCircleText, Checks, CookingPot, EyeSlash, ForkKnife, Star, Trash, UserCircle } from '@phosphor-icons/react';
 import { useActions, useErr, useOpinions } from '../hooks.js';
 import { useI } from '../i18n.jsx';
 import { OPINION_SOURCES, OPINION_TOPICS } from '../vocab.js';
-import { Btn, Chip, Empty, Modal, Page, PageSkeleton, Seg } from '../components/ui.jsx';
+import { Btn, Chip, Empty, Page, PageSkeleton, Seg } from '../components/ui.jsx';
+import { Modal } from '../components/Modal.jsx';
 
 const SOURCE_ICON = { customer: ForkKnife, worker: CookingPot };
 
 /* "5 minutes ago" for recent ones, the date and time after a week. */
 function useWhen() {
   const { t, lang, fmtDate } = useI();
-  const rtf = new Intl.RelativeTimeFormat(lang === 'sw' ? 'sw' : 'en', { numeric: 'auto' });
+  const rtf = useMemo(() => new Intl.RelativeTimeFormat(lang === 'sw' ? 'sw' : 'en', { numeric: 'auto' }), [lang]);
   return (iso) => {
     const at = new Date(iso);
     const mins = Math.round((at - Date.now()) / 60_000);
@@ -31,21 +32,26 @@ const Stars = ({ n, label }) => (
   </span>
 );
 
-/* The manager's inbox for what customers and workers sent through the public form. */
+const PAGE = 50;
+
+/* The manager's inbox for what customers and workers sent through the public form. Filtered on the server and
+   loaded 50 at a time, so it stays quick however many opinions pile up. */
 export default function Opinions() {
   const { t, p } = useI();
-  const { data } = useOpinions();
   const act = useActions();
   const fail = useErr();
   const when = useWhen();
   const [who, setWho] = useState('all');
   const [only, setOnly] = useState('all');
+  const [limit, setLimit] = useState(PAGE);
+  const { data, isPlaceholderData } = useOpinions(who, only, limit);
   const [doomed, setDoomed] = useState(null);
   const [busy, setBusy] = useState(false);
   if (!data) return <PageSkeleton />;
 
   const c = data.counts;
-  const list = data.opinions.filter((o) => (who === 'all' || o.source === who) && (only === 'all' || !o.read));
+  const list = data.opinions;
+  const filter = (set) => (v) => { set(v); setLimit(PAGE); }; // a new filter starts again from the first page
   const count = (label, n) => <>{label}<em className="seg-count">{n}</em></>;
 
   const toggle = (o) => act.readOpinion(o.id, !o.read).catch(fail);
@@ -80,9 +86,9 @@ export default function Opinions() {
       </div>
 
       <div className="list-tools op-filters">
-        <Seg label={t('Kutoka kwa', 'From')} value={who} onChange={setWho}
+        <Seg label={t('Kutoka kwa', 'From')} value={who} onChange={filter(setWho)}
           options={[['all', count(t('Wote', 'All'), c.total)], ['customer', count(t('Wateja', 'Customers'), c.customer)], ['worker', count(t('Wafanyakazi', 'Workers'), c.worker)]]} />
-        <Seg label={t('Onyesha', 'Show')} value={only} onChange={setOnly}
+        <Seg label={t('Onyesha', 'Show')} value={only} onChange={filter(setOnly)}
           options={[['all', t('Yote', 'All')], ['unread', count(t('Mapya', 'New'), c.unread)]]} />
       </div>
 
@@ -92,7 +98,7 @@ export default function Opinions() {
             : t('Hakuna maoni yanayolingana na uchaguzi huu.', 'No feedback matches this filter.')}
         </Empty>
       ) : (
-        <ol className="op-list">
+        <ol className="op-list" style={{ opacity: isPlaceholderData ? 0.6 : 1 }}>
           {list.map((o, i) => {
             const Icon = SOURCE_ICON[o.source];
             return (
@@ -124,6 +130,11 @@ export default function Opinions() {
           })}
         </ol>
       )}
+      {data.has_more ? (
+        <div className="op-more">
+          <Btn loading={isPlaceholderData} onClick={() => setLimit((n) => n + PAGE)}>{t('Onyesha zaidi', 'Show more')}</Btn>
+        </div>
+      ) : null}
 
       <Modal open={!!doomed} onClose={() => setDoomed(null)} title={t('Futa maoni haya?', 'Delete this feedback?')}
         description={t('Yakishafutwa hayawezi kurudishwa.', 'Once deleted it cannot be brought back.')}>

@@ -4,6 +4,7 @@ from django.conf import settings as django_settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.db.models import Avg, Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -378,9 +379,10 @@ class DayAttendanceView(APIView):
     def put(self, request, d):
         d = pdate(d)
         svc.require_open(d)
+        on_leave = svc.leaves_on(d)
         for wid, status in request.data.items():
             w = get_object_or_404(Worker, pk=wid, active=True)
-            if svc.status_on(w, d)[1]:
+            if svc.status_on(w, d, leaves=on_leave.get(w.id, []), manual={})[1]:
                 continue  # leave and day off are filled automatically
             if status not in svc.MANUAL:
                 raise ValidationError({wid: 'present, late or absent.'})
@@ -518,10 +520,10 @@ class DayReportView(APIView):
         d = pdate(d)
         fmt = request.query_params.get('file', 'json')
         lang = 'en' if request.query_params.get('lang') == 'en' else 'sw'
-        if fmt == 'pdf':  # the day sheet plus the Ripoti figures (profit up to this day, with daily pay)
-            return _file_response('pdf', f'mauzo-{d}', exports.day_pdf(svc.day_payload(d), svc.day_report(d), lang))
-        if fmt == 'xlsx':
-            return _file_response('xlsx', f'mauzo-{d}', exports.day_xlsx(svc.day_payload(d), svc.day_report(d), lang))
+        if fmt in ('pdf', 'xlsx'):  # the day sheet plus the Ripoti figures (profit up to this day, with daily pay)
+            p = svc.day_payload(d)
+            make = exports.day_pdf if fmt == 'pdf' else exports.day_xlsx
+            return _file_response(fmt, f'mauzo-{d}', make(p, svc.day_report(d, p), lang))
         return Response(svc.day_report(d))
 
 
@@ -538,11 +540,12 @@ def opinion_json(o):
 
 
 def opinion_counts():
-    qs = Opinion.objects.all()
-    rated = [r for r in qs.exclude(rating=None).values_list('rating', flat=True)]
-    return {'total': qs.count(), 'unread': qs.filter(read_at=None).count(),
-            'customer': qs.filter(source='customer').count(), 'worker': qs.filter(source='worker').count(),
-            'rated': len(rated), 'average_rating': round(sum(rated) / len(rated), 1) if rated else None}
+    """All the inbox totals in one query."""
+    c = Opinion.objects.aggregate(
+        total=Count('id'), unread=Count('id', filter=Q(read_at=None)), customer=Count('id', filter=Q(source='customer')),
+        worker=Count('id', filter=Q(source='worker')), rated=Count('rating'), average=Avg('rating'))
+    average = c.pop('average')
+    return {**c, 'average_rating': round(average, 1) if c['rated'] else None}
 
 
 class OpinionSubmitView(APIView):
@@ -573,8 +576,18 @@ class OpinionSubmitView(APIView):
 
 
 class OpinionsView(APIView):
+    """Newest first. Optional ?source=customer|worker, ?unread=1, and ?limit=n with has_more, so the inbox
+    loads a page at a time instead of every opinion ever sent."""
     def get(self, request):
-        return Response({'opinions': [opinion_json(o) for o in Opinion.objects.all()], 'counts': opinion_counts()})
+        qs = Opinion.objects.all()
+        if request.query_params.get('source') in ('customer', 'worker'):
+            qs = qs.filter(source=request.query_params['source'])
+        if request.query_params.get('unread') in ('1', 'true'):
+            qs = qs.filter(read_at=None)
+        limit = pint(request.query_params, 'limit', required=False, minimum=1)
+        rows = list(qs if limit is None else qs[:limit + 1])
+        more = limit is not None and len(rows) > limit
+        return Response({'opinions': [opinion_json(o) for o in rows[:limit]], 'has_more': more, 'counts': opinion_counts()})
 
 
 class OpinionsUnreadView(APIView):

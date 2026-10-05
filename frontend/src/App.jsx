@@ -11,7 +11,9 @@ import { STEPS } from './vocab.js';
 import { Logo, PageSkeleton } from './components/ui.jsx';
 import { Tools, useTheme } from './components/Tools.jsx';
 import Login from './pages/Login.jsx';
-import Leo from './pages/Leo.jsx';
+// every screen after sign-in loads on demand, so the sign-in page and the public feedback form stay small
+const loadLeo = () => import('./pages/Leo.jsx');
+const Leo = lazy(loadLeo);
 const Close = lazy(() => import('./pages/Close.jsx'));
 const Money = lazy(() => import('./pages/Money.jsx'));
 const Settings = lazy(() => import('./pages/Settings.jsx'));
@@ -57,7 +59,9 @@ function Shell({ onLogout }) {
     ['/fedha', t('Fedha', 'Money'), Wallet],
     ['/maoni', t('Maoni', 'Feedback'), ChatCircleText],
   ];
-  const Links = ({ pillId, mobile }) => items.map(([to, label, Icon, end]) => (
+  // called as a function (not used as <Links />): a component defined in here would be a new type on every
+  // render, and React would rebuild the whole menu on each page change
+  const links = (pillId, mobile) => items.map(([to, label, Icon, end]) => (
     <NavLink key={to} to={to} end={end}>
       {({ isActive }) => (
         <>
@@ -78,7 +82,7 @@ function Shell({ onLogout }) {
       <aside className="rail">
         <div className="brand"><Logo size={44} /><div><b>Daftari</b><small>{t('Daftari la mgahawa', 'Restaurant ledger')}</small></div></div>
         <p className="nav-label" aria-hidden="true">{t('Menyu', 'Menu')}</p>
-        <nav className="nav" aria-label={t('Menyu kuu', 'Main menu')}><Links pillId="rail-pill" /></nav>
+        <nav className="nav" aria-label={t('Menyu kuu', 'Main menu')}>{links('rail-pill')}</nav>
         <div className="rail-foot">
           <TodayCard />
           <Tools theme={theme} toggle={toggle} />
@@ -121,7 +125,7 @@ function Shell({ onLogout }) {
         </AnimatePresence>
       </main>
 
-      <nav className="bottomnav" aria-label={t('Menyu kuu', 'Main menu')}><Links pillId="bottom-pill" mobile /></nav>
+      <nav className="bottomnav" aria-label={t('Menyu kuu', 'Main menu')}>{links('bottom-pill', true)}</nav>
       <Toaster position="bottom-right" theme={theme} richColors closeButton className="toast-wrap" offset={24} mobileOffset={{ bottom: 104, left: 12, right: 12 }} />
     </div>
   );
@@ -146,8 +150,15 @@ export default function App() {
     window.addEventListener('daftari:logout', logout);
     return () => window.removeEventListener('daftari:logout', logout);
   }, [logout]);
+  // while the sign-in screen is open, fetch the home screen's code in the background so it opens at once
+  const publicForm = pathname.startsWith('/toa-maoni');
+  useEffect(() => {
+    if (authed || publicForm) return undefined;
+    const id = setTimeout(loadLeo, 1500);
+    return () => clearTimeout(id);
+  }, [authed, publicForm]);
   // the public opinions form needs no login, so it shows whether or not the manager is signed in
-  if (pathname.startsWith('/toa-maoni')) return <Suspense fallback={null}><OpinionForm /></Suspense>;
+  if (publicForm) return <Suspense fallback={null}><OpinionForm /></Suspense>;
   if (!authed) return <><Login onDone={() => setAuthed(true)} /><Toaster theme={theme} richColors position="top-center" /></>;
   return <Gate onLogout={logout} />;
 }

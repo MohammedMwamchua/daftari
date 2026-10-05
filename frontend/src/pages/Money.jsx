@@ -7,7 +7,8 @@ import { useActions, useDay, useDayPay, useDayReport, useErr, useExpenses, useMe
 import { useI } from '../i18n.jsx';
 import { num, parseISO, signed, sum, tsh } from '../format.js';
 import { PAID_FROM, ROLES, SECTIONS } from '../vocab.js';
-import { Avatar, Btn, Callout, Chip, CountUp, Empty, Leader, Modal, Page, PageSkeleton, Rise, Seg, SelectField, StatusChip, Tabs, TextField } from '../components/ui.jsx';
+import { Avatar, Btn, Callout, Chip, CountUp, Empty, Leader, Page, PageSkeleton, Rise, Seg, SelectField, StatusChip, Tabs, TextField } from '../components/ui.jsx';
+import { Modal } from '../components/Modal.jsx';
 import { BarsChart, CatBars, Donut } from '../components/charts.jsx';
 import { DownloadButtons, ExpenseForm } from '../components/forms.jsx';
 

@@ -1,6 +1,7 @@
 """Business rules for Daftari. Views stay thin; every number the manager sees is computed here."""
 import calendar
 from datetime import date, timedelta
+from functools import cached_property
 
 from django.db import transaction
 from django.db.models import Sum
@@ -39,9 +40,11 @@ def audit(user, action, target='', **detail):
 
 
 def get_day(d):
-    day, _ = Day.objects.get_or_create(date=d)
+    day, made = Day.objects.get_or_create(date=d)
+    have = set() if made else set(day.sections.values_list('section', flat=True))
     for s in SECTIONS:
-        DaySection.objects.get_or_create(day=day, section=s)
+        if s not in have:
+            DaySection.objects.get_or_create(day=day, section=s)
     return day
 
 
@@ -72,6 +75,58 @@ def unpaid_salary_by_worker():
     rows = (SalaryLine.objects.filter(run__approved_at__isnull=False, paid=False)
             .values('worker_id').annotate(total=Sum('net')))
     return {r['worker_id']: r['total'] for r in rows}
+
+
+def _group(rows):
+    out = {}
+    for r in rows:
+        out.setdefault(r.worker_id, []).append(r)
+    return out
+
+
+def leaves_on(d):
+    """Every worker's leave covering day d, newest first (the order status_on() checks them in)."""
+    return _group(LeaveRecord.objects.filter(start__lte=d, end__gte=d).order_by('-start', 'id'))
+
+
+class MonthBook:
+    """What salary_figures() needs for one month, loaded for many workers at once: a handful of queries
+    for the whole salary list instead of a handful per worker."""
+
+    def __init__(self, ym, workers):
+        self.workers = workers
+        self.first, self.last = month_bounds(ym)
+        self.in_month = {'worker_id__in': [w.id for w in workers], 'date__range': (self.first, self.last)}
+
+    # each kind is loaded the first time it is needed, so a page that only shows attendance never loads money
+    @cached_property
+    def leaves(self):
+        return _group(LeaveRecord.objects.filter(worker_id__in=self.in_month['worker_id__in'], start__lte=self.last,
+                                                 end__gte=self.first).order_by('-start', 'id'))
+
+    @cached_property
+    def manual(self):
+        out = {}
+        for wid, d, st in Attendance.objects.filter(**self.in_month).values_list('worker_id', 'date', 'status'):
+            out.setdefault(wid, {})[d] = st
+        return out
+
+    @cached_property
+    def advances(self):
+        return self._sums(Advance.objects.filter(**self.in_month))
+
+    @cached_property
+    def shortages(self):
+        return self._sums(Shortage.objects.filter(status='applied', **self.in_month))
+
+    @cached_property
+    def paid(self):
+        daily = [w.id for w in self.workers if w.pay_type == 'daily']
+        return self._sums(DailyPayment.objects.filter(**{**self.in_month, 'worker_id__in': daily})) if daily else {}
+
+    @staticmethod
+    def _sums(qs):
+        return dict(qs.order_by().values('worker_id').annotate(s=Sum('amount')).values_list('worker_id', 's'))
 
 
 def _leave_kind(leaves, d):
@@ -118,10 +173,9 @@ def month_calendar(worker, ym):
     return out
 
 
-def month_stats(worker, ym, upto=None):
-    first, last = month_bounds(ym)
-    leaves = list(worker.leaves.filter(start__lte=last, end__gte=first))
-    manual = {a.date: a.status for a in Attendance.objects.filter(worker=worker, date__range=(first, last))}
+def month_stats(worker, ym, upto=None, book=None):
+    book = book or MonthBook(ym, [worker])
+    leaves, manual = book.leaves.get(worker.id, []), book.manual.get(worker.id, {})
     stats = {k: 0 for k in (*MANUAL, *SPECIAL)}
     for d in month_days(worker, ym, upto):
         key = status_on(worker, d, leaves, manual)[0]
@@ -139,15 +193,16 @@ def month_employed_days(worker, first, last):
     return max(0, (end - start).days + 1)
 
 
-def salary_figures(worker, ym, rules, upto=None):
-    stats = month_stats(worker, ym, upto)
+def salary_figures(worker, ym, rules, upto=None, book=None):
+    """Pass a MonthBook when working out many workers of the same month, so the records are loaded once."""
+    book = book or MonthBook(ym, [worker])
+    stats = month_stats(worker, ym, upto, book)
     first, last = month_bounds(ym)
-    adv = Advance.objects.filter(worker=worker, date__range=(first, last)).aggregate(s=Sum('amount'))['s'] or 0
-    short = (Shortage.objects.filter(worker=worker, date__range=(first, last), status='applied')
-             .aggregate(s=Sum('amount'))['s'] or 0)
+    adv = book.advances.get(worker.id, 0)
+    short = book.shortages.get(worker.id, 0)
     if worker.pay_type == 'daily':
         # paid by hand each day in the close-day "Malipo" step, so nothing is left to pay at the end of the month
-        paid = DailyPayment.objects.filter(worker=worker, date__range=(first, last)).aggregate(s=Sum('amount'))['s'] or 0
+        paid = book.paid.get(worker.id, 0)
         return {'stats': stats, 'base': paid, 'advances': adv, 'shortages': short, 'net': 0, 'paid_daily': True}
     days_in_month = (last - first).days + 1
     not_employed = days_in_month - month_employed_days(worker, first, last)
@@ -192,8 +247,10 @@ def salary_list(ym):
     else:
         rules = settings_.rules
         lines = []
-        for w in salary_workers(ym):
-            f = salary_figures(w, ym, rules)
+        workers = salary_workers(ym)
+        book = MonthBook(ym, workers)
+        for w in workers:
+            f = salary_figures(w, ym, rules, book=book)
             lines.append({'line_id': None, 'worker': worker_brief(w), 'removed': w.removed_on is not None,
                           'paid': False, **f})
     shortage_rows = Shortage.objects.filter(date__range=(first, last)).select_related('worker')
@@ -217,8 +274,10 @@ def approve_salary(ym, user):
     run.approved_at = timezone.now()
     run.save()
     run.lines.all().delete()
-    for w in salary_workers(ym):
-        f = salary_figures(w, ym, rules)
+    workers = salary_workers(ym)
+    book = MonthBook(ym, workers)
+    for w in workers:
+        f = salary_figures(w, ym, rules, book=book)
         SalaryLine.objects.create(run=run, worker=w, base=f['base'], advances=f['advances'],
                                   shortages=f['shortages'], net=f['net'], stats=f['stats'], created_by=user)
     audit(user, 'salary.approve', ym)
@@ -284,9 +343,12 @@ def expense_json(e):
             'section': e.section}
 
 
-def _sales_of(d):
-    rows = DaySection.objects.filter(day__date=d)
-    return {s.section: {'cash': s.cash, 'mobile': s.mobile} for s in rows}
+def _sales_between(first, last):
+    """{date: {section: {'cash', 'mobile'}}} for every day in [first, last] that has sales rows."""
+    out = {}
+    for d, sec, cash, mobile in DaySection.objects.filter(day__date__range=(first, last)).values_list('day__date', 'section', 'cash', 'mobile'):
+        out.setdefault(d, {})[sec] = {'cash': cash, 'mobile': mobile}
+    return out
 
 
 def day_payload(d):
@@ -298,20 +360,22 @@ def day_payload(d):
     sec = {ds.section: section_cash(day, ds, expenses, payments, st) for ds in sections}
     sales = {s: sec[s]['cash'] + sec[s]['mobile'] for s in SECTIONS}
     manual = {a.worker_id: a.status for a in Attendance.objects.filter(date=d)}
+    on_leave = leaves_on(d)
     people, missing = [], []
     for w in active_workers(d):
-        key, locked = status_on(w, d, manual={d: manual.get(w.id)})
+        key, locked = status_on(w, d, leaves=on_leave.get(w.id, []), manual={d: manual.get(w.id)})
         people.append({'worker_id': w.id, 'name': w.name, 'role': w.role, 'status': key, 'locked': locked})
         if not key:
             missing.append(w.id)
-    prev = _sales_of(d - timedelta(days=1))
+    sold = _sales_between(d - timedelta(days=13), d)  # yesterday, this week and the week before, in one query
+    prev = sold.get(d - timedelta(days=1), {})
     week = []
     for i in range(6, -1, -1):
         wd = d - timedelta(days=i)
-        s = _sales_of(wd)
+        s = sold.get(wd, {})
         week.append({'date': wd.isoformat(), 'dow': js_dow(wd), 'total': sum(v['cash'] + v['mobile'] for v in s.values())})
     prev_week = sum(
-        sum(v['cash'] + v['mobile'] for v in _sales_of(d - timedelta(days=i)).values()) for i in range(7, 14))
+        sum(v['cash'] + v['mobile'] for v in sold.get(d - timedelta(days=i), {}).values()) for i in range(7, 14))
     diffs = [v['difference'] for v in sec.values() if v['difference'] is not None]
     # the Malipo step: every daily-paid worker on the books that day, plus anyone already paid that day
     paid = {x.worker_id: x for x in payments}
@@ -388,12 +452,6 @@ def close_day(d, user):
 
 
 # ---------------------------------------------------------------- reports
-def month_salaries_cost(ym):
-    """What the month's salaries cost the business: net pay plus the advances already handed out."""
-    sal = salary_list(ym)
-    return sal['total_net'] + sal['total_advances']
-
-
 def month_report(ym):
     first, last = month_bounds(ym)
     exp = list(Expense.objects.filter(date__range=(first, last)).select_related('category'))
@@ -430,7 +488,8 @@ def month_report(ym):
         c = by_cat.setdefault(e.category.key, {'key': e.category.key, 'name_sw': e.category.name_sw,
                                               'name_en': e.category.name_en, 'amount': 0})
         c['amount'] += e.amount
-    salaries_cost = month_salaries_cost(ym)
+    sal = salary_list(ym)
+    salaries_cost = sal['total_net'] + sal['total_advances']  # what salaries cost: net pay plus advances already handed out
     exp_total = sum(spent.values())
     pay_total = sum(wages.values())
     return {
@@ -440,7 +499,7 @@ def month_report(ym):
         'average': round(total / len(selling)) if selling else 0, 'best': best,
         'expenses_total': exp_total, 'expenses_by_category': sorted(by_cat.values(), key=lambda c: -c['amount']),
         'payments_total': pay_total, 'salaries_total': salaries_cost, 'profit': total - exp_total - pay_total - salaries_cost,
-        'daily_paid': daily_paid(ym),
+        'daily_paid': sal['daily'],
         'payment_rows': [{**payment_json(x), 'worker_name': x.worker.name}
                          for x in DailyPayment.objects.filter(date__range=(first, last)).select_related('worker')],
         'diff_total': sum(r['diff'] for r in days),
@@ -458,9 +517,11 @@ def day_pay(d):
     for s in Shortage.objects.filter(date=d, status='applied'):
         short[s.worker_id] = short.get(s.worker_id, 0) + s.amount
     paid = {x.worker_id: x.amount for x in DailyPayment.objects.filter(date=d)}
+    on_leave = leaves_on(d)
+    manual = dict(Attendance.objects.filter(date=d).values_list('worker_id', 'status'))
     lines = []
     for w in Worker.objects.filter(joined_on__lte=d).exclude(removed_on__lt=d).order_by('name'):
-        status = status_on(w, d)[0]
+        status = status_on(w, d, leaves=on_leave.get(w.id, []), manual={d: manual.get(w.id)})[0]
         if w.pay_type == 'monthly':
             cut = status == 'absent' or (status in SPECIAL and rules[status]['cut'])
             earned = 0 if cut else round(w.rate / 30)
@@ -473,10 +534,10 @@ def day_pay(d):
             'total_shortages': sum(short.values())}
 
 
-def day_report(d):
+def day_report(d, p=None):
     """Profit as the manager wants it on a given day: sales, expenses and daily pay added up from the 1st of
-    the month to that day, minus the whole month's (monthly) salaries."""
-    p = day_payload(d)
+    the month to that day, minus the whole month's (monthly) salaries. `p` is day_payload(d), if already built."""
+    p = p or day_payload(d)
     ym = ym_of(d)
     first, _ = month_bounds(ym)
     month = month_report(ym)

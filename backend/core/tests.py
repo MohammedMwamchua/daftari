@@ -453,6 +453,21 @@ class OpinionsTest(APITestCase):
         self.assertEqual(self.client.delete(f'/api/opinions/{first}/').status_code, 204)
         self.assertEqual(Opinion.objects.count(), 2)
 
+    def test_inbox_pages_and_filters(self):
+        for i in range(5):
+            self.send(source='worker' if i % 2 else 'customer', message=f'Maoni namba {i}')
+        self.client.force_authenticate(self.manager)
+        r = self.client.get('/api/opinions/?limit=2')
+        self.assertEqual([o['message'] for o in r.data['opinions']], ['Maoni namba 4', 'Maoni namba 3'])  # newest first
+        self.assertTrue(r.data['has_more'])
+        self.assertEqual(r.data['counts']['total'], 5)  # totals always cover everything
+        r = self.client.get('/api/opinions/?source=worker&limit=10')
+        self.assertEqual(len(r.data['opinions']), 2)
+        self.assertFalse(r.data['has_more'])
+        self.client.patch(f"/api/opinions/{r.data['opinions'][0]['id']}/", {'read': True}, format='json')
+        self.assertEqual(len(self.client.get('/api/opinions/?unread=1').data['opinions']), 4)
+        self.assertEqual(len(self.client.get('/api/opinions/').data['opinions']), 5)  # no limit: everything, as before
+
 
 class BackupTest(TransactionTestCase):
     # Not wrapped in a test transaction: SQLite's backup waits for open write transactions to finish.
