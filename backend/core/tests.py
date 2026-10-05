@@ -281,18 +281,24 @@ class RulesTest(APITestCase):
     def test_salary_formulas(self):
         ym = svc.ym_of(self.today)
         first, _ = svc.month_bounds(ym)
-        # fixed history inside the current month: daily 10 days (8 present + 2 late), monthly 2 absent + 1 permission
+        # fixed history on the month's first working days: the cook late twice then present, the cashier absent
+        # twice then present. Their shared day off is skipped, since a day off overrides any mark and is neither
+        # paid (daily) nor cut (monthly) under the default rules; otherwise this test fails on some dates.
+        marked = []
         for i in range(10):
             d = first + timedelta(days=i)
             if d > self.today:
                 break
-            Attendance.objects.update_or_create(worker=self.cook, date=d, defaults={'status': 'late' if i < 2 else 'present'})
-            Attendance.objects.update_or_create(worker=self.cashier, date=d, defaults={'status': 'absent' if i < 2 else 'present'})
-        days = [d for d in svc.month_days(self.cook, ym) if Attendance.objects.filter(worker=self.cook, date=d).exists()]
+            if svc.js_dow(d) == self.cook.day_off:
+                continue
+            n = len(marked)
+            Attendance.objects.update_or_create(worker=self.cook, date=d, defaults={'status': 'late' if n < 2 else 'present'})
+            Attendance.objects.update_or_create(worker=self.cashier, date=d, defaults={'status': 'absent' if n < 2 else 'present'})
+            marked.append(d)
         f = svc.salary_figures(self.cook, ym, Settings.load().rules)
-        self.assertEqual(f['base'], 10000 * len(days))
+        self.assertEqual(f['base'], 10000 * len(marked))
         g = svc.salary_figures(self.cashier, ym, Settings.load().rules)
-        absent = min(2, len(days))
+        absent = min(2, len(marked))
         self.assertEqual(g['base'], 300000 - round(300000 / 30 * absent))
 
 
