@@ -107,7 +107,7 @@ export default function App() {
     window.addEventListener('daftari:logout', logout);
     return () => window.removeEventListener('daftari:logout', logout);
   }, [logout]);
-  if (!authed) return <><Login onDone={() => setAuthed(true)} theme={theme} toggle={toggle} /><Toaster theme={theme} richColors position="top-center" /></>;
+  if (!authed) return <><Login onDone={() => setAuthed(true)} /><Toaster theme={theme} richColors position="top-center" /></>;
   return <Gate onLogout={logout} />;
 }
 

@@ -1,15 +1,22 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, CheckCircle, Eye, EyeSlash, LockKey, TrendUp } from '@phosphor-icons/react';
+import { ArrowRight, Eye, EyeSlash, LockKey, User } from '@phosphor-icons/react';
 import { api } from '../api.js';
 import { useI } from '../i18n.jsx';
-import { Btn, Callout, Logo, TextField } from '../components/ui.jsx';
-import { Tools } from '../components/Tools.jsx';
+import { Btn } from '../components/ui.jsx';
+import { LangSwitch } from '../components/Tools.jsx';
+import plate from '../assets/login-plate.webp';
+import backdrop from '../assets/login-backdrop.webp';
+import logo from '../assets/stonetown-logo.webp';
 
 // Set by the public demo build (Dockerfile). The demo login comes from `seed_demo`.
 const DEMO = import.meta.env.VITE_DEMO === '1';
 
-export default function Login({ onDone, theme, toggle }) {
+const EASE = [0.22, 1, 0.36, 1];
+const rise = (delay) => ({ initial: { opacity: 0, y: 16 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.7, delay, ease: EASE } });
+
+/* Always the dark, candle-lit StoneTown look, whatever theme the app itself is set to. */
+export default function Login({ onDone }) {
   const { t } = useI();
   const [user, setUser] = useState(DEMO ? 'manager' : '');
   const [pass, setPass] = useState(DEMO ? 'daftari123' : '');
@@ -26,53 +33,66 @@ export default function Login({ onDone, theme, toggle }) {
     finally { setBusy(false); }
   };
 
-  return (
-    <div className="login">
-      <section className="login-art" aria-hidden="true">
-        <div className="kanga" />
-        <div className="brand" style={{ padding: 0 }}><Logo size={52} /><div><b>Daftari</b><small>{t('Daftari la mgahawa', 'Restaurant ledger')}</small></div></div>
-        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}>
-          <h1>{t('Hesabu zako, wazi kama kioo.', 'Your books, clear as glass.')}</h1>
-          <p>{t('Mauzo, pesa, wafanyakazi na mishahara ya banda na mgahawa. Mahali pamoja.', 'Sales, cash, workers and salaries for the stall and restaurant. All in one place.')}</p>
-        </motion.div>
-        {/* Illustrative only — no login session exists yet to show real figures here. */}
-        <motion.div className="float-card" style={{ right: '8%', top: '22%' }} animate={{ y: [0, -10, 0] }} transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}>
-          <TrendUp size={18} weight="bold" aria-hidden="true" />
-          <span>{t('Mauzo ya kila siku, yanafuatiliwa', 'Daily sales, tracked')}</span>
-        </motion.div>
-        <motion.div className="float-card" style={{ right: '22%', top: '50%' }} animate={{ y: [0, 10, 0] }} transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}>
-          <CheckCircle size={18} weight="bold" aria-hidden="true" />
-          <span>{t('Hesabu ya pesa, sahihi kila siku', 'Cash counts, accurate every day')}</span>
-        </motion.div>
-      </section>
+  const invalid = err ? { 'aria-invalid': true, 'aria-describedby': 'login-error' } : {};
 
-      <section className="login-form">
-        <div className="tools"><Tools theme={theme} toggle={toggle} /></div>
-        <motion.form onSubmit={submit} noValidate initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}>
-          <div><p className="eyebrow">{t('Karibu tena', 'Welcome back')}</p><h1 style={{ fontSize: '2.2rem', marginTop: 6 }}>{t('Ingia kama meneja', 'Sign in as manager')}</h1></div>
+  return (
+    <div className="auth" style={{ '--backdrop': `url(${backdrop})` }}>
+      <div className="auth-tools"><LangSwitch /></div>
+
+      <motion.main className="auth-frame" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.9, ease: EASE }}>
+        <section className="auth-hero">
+          <motion.img {...rise(0.1)} className="auth-logo" src={logo} width="480" height="435" alt="StoneTown, where good food begins" />
+          <motion.figure className="auth-plate" initial={{ opacity: 0, scale: 0.9, rotate: -8 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ duration: 1.1, delay: 0.15, ease: EASE }}>
+            <img src={plate} alt="" width="720" height="720" fetchPriority="high" decoding="async" />
+          </motion.figure>
+          <motion.p {...rise(0.45)} className="auth-tagline">
+            <span>{t('Daftari la mgahawa', 'Restaurant ledger')}</span>
+            {t('Mauzo, matumizi na mishahara. Mahali pamoja.', 'Sales, expenses and salaries. All in one place.')}
+          </motion.p>
+        </section>
+
+        <motion.section {...rise(0.25)} className="auth-panel">
+          <div className="auth-head">
+            <h1>{t('Ingia', 'Sign in')}</h1>
+            <p>{t('Karibu tena, meneja.', 'Welcome back, manager.')}</p>
+          </div>
           {DEMO ? (
-            <Callout tone="info">
+            <p className="auth-demo" role="note">
               {t('Hili ni toleo la majaribio. Jina na nenosiri vimeshajazwa, bonyeza Ingia. Taarifa zote ni za mfano na zinarudi mwanzo seva inapoanza upya.',
                 'This is a public demo. The login is filled in, so just press Sign in. All data is sample data and resets whenever the server restarts.')}
-            </Callout>
+            </p>
           ) : null}
-          <TextField label={t('Jina la mtumiaji', 'Username')} value={user} onChange={setUser} autoComplete="username" autoFocus required />
-          <label className="field">
-            <span className="field-label">{t('Nenosiri', 'Password')}</span>
-            <span className="money" style={{ gap: 10 }}>
-              <LockKey size={20} weight="duotone" aria-hidden="true" />
-              <input style={{ fontFamily: 'var(--font-text)', fontSize: '1rem', fontWeight: 400 }} type={show ? 'text' : 'password'} value={pass} onChange={(e) => setPass(e.target.value)} autoComplete="current-password" required />
-              <button type="button" className="icon-plain" onClick={() => setShow((s) => !s)} aria-label={t('Onyesha nenosiri', 'Show password')} style={{ marginRight: -8 }}>
-                {show ? <EyeSlash size={20} /> : <Eye size={20} />}
-              </button>
-            </span>
-          </label>
-          {err ? <Callout tone="bad">{err}</Callout> : null}
-          <Btn type="submit" className="btn-primary btn-block" loading={busy} style={{ minHeight: 52 }}>
-            {t('Ingia', 'Sign in')}<ArrowRight size={18} weight="bold" />
-          </Btn>
-        </motion.form>
-      </section>
+
+          <form className="auth-form" onSubmit={submit}>
+            <div className="auth-field">
+              <label htmlFor="username">{t('Jina la mtumiaji', 'Username')}</label>
+              <div className="auth-input">
+                <User size={19} weight="duotone" aria-hidden="true" />
+                <input id="username" name="username" type="text" value={user} onChange={(e) => setUser(e.target.value)} placeholder={t('Weka jina la mtumiaji', 'Enter your username')}
+                  autoComplete="username" autoCapitalize="none" spellCheck={false} enterKeyHint="next" autoFocus required {...invalid} />
+              </div>
+            </div>
+            <div className="auth-field">
+              <label htmlFor="current-password">{t('Nenosiri', 'Password')}</label>
+              <div className="auth-input">
+                <LockKey size={19} weight="duotone" aria-hidden="true" />
+                <input id="current-password" name="password" type={show ? 'text' : 'password'} value={pass} onChange={(e) => setPass(e.target.value)} placeholder={t('Weka nenosiri', 'Enter your password')}
+                  autoComplete="current-password" enterKeyHint="go" required {...invalid} />
+                <button type="button" className="auth-eye" onClick={() => setShow((s) => !s)} aria-pressed={show} aria-controls="current-password"
+                  aria-label={show ? t('Ficha nenosiri', 'Hide password') : t('Onyesha nenosiri', 'Show password')}>
+                  {show ? <EyeSlash size={19} /> : <Eye size={19} />}
+                </button>
+              </div>
+            </div>
+            {err ? <p id="login-error" className="auth-error" role="alert">{err}</p> : null}
+            <Btn type="submit" className="btn-primary btn-block auth-submit" loading={busy}>
+              {t('Ingia', 'Sign in')}<ArrowRight size={18} weight="bold" aria-hidden="true" />
+            </Btn>
+          </form>
+
+          <p className="auth-foot">{t('Akaunti ya meneja pekee', 'Manager account only')} · Daftari</p>
+        </motion.section>
+      </motion.main>
     </div>
   );
 }
