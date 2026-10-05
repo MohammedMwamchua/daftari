@@ -41,7 +41,7 @@ export default function Login({ onDone }) {
 
       <motion.main className="auth-frame" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.9, ease: EASE }}>
         <section className="auth-hero">
-          <motion.img {...rise(0.1)} className="auth-logo" src={logo} width="480" height="435" alt="StoneTown, where good food begins" />
+          <motion.img {...rise(0.1)} className="auth-logo" src={logo} width="512" height="512" alt="Stone Town Grill & Restaurant" />
           <motion.figure className="auth-plate" initial={{ opacity: 0, scale: 0.9, rotate: -8 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ duration: 1.1, delay: 0.15, ease: EASE }}>
             <img src={plate} alt="" width="720" height="720" fetchPriority="high" decoding="async" />
           </motion.figure>
