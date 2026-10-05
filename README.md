@@ -182,6 +182,13 @@ A table shows how sales, expenses and daily pay add up day by day. On the last d
   - adding, removing or restoring a worker;
   - changing settings, deleting a category, or changing the password.
 
+### Security
+- **Sign-in:** at most 10 attempts a minute from one device and 30 an hour against one account, so passwords cannot be guessed at speed.
+- **Sessions:** access tokens last 30 minutes and are renewed in the background. Each refresh token works once. Signing out, or changing the password, ends every earlier sign-in, including a stolen one; the device that changed the password stays signed in.
+- **Feedback form:** 20 sends an hour per device and 500 a day in total; with `TRUSTED_PROXIES` set, a visitor cannot dodge the limit by faking their address.
+- **In production** (when Django serves the screens): a Content-Security-Policy lets only the app's own scripts run, no other site may show the pages in a frame, and with `HTTPS_ONLY=1` browsers are told to use https only.
+- **Settings refuse to start in production with a weak `SECRET_KEY`.** Amounts above a trillion shillings are refused, and text that looks like a formula is saved in Excel exports as plain text.
+
 ---
 
 ## Running it
@@ -250,8 +257,10 @@ The backend reads `backend/.env`. The file [`backend/.env.example`](backend/.env
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DEBUG` | `1` | Set to `0` in production |
-| `SECRET_KEY` | dev-only key | **Required** when `DEBUG=0` |
+| `DEBUG` | `0` | `1` for development (`.env.example` sets it); never in production |
+| `SECRET_KEY` | none | Signs every sign-in token. **Required** when `DEBUG=0`: at least 32 random characters (`start.bat` makes one) |
+| `TRUSTED_PROXIES` | `0` | How many proxies in front of Django add the visitor's address: `1` behind the Vite dev server or Render |
+| `HTTPS_ONLY` | unset | `1` behind an HTTPS proxy: trusts its https marker, sends HSTS, keeps cookies off plain http |
 | `ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated host names |
 | `CORS_ORIGINS` | `http://localhost:5173,…` | Where the frontend is served from |
 | `USE_SQLITE` | unset | `1` uses `backend/db.sqlite3` instead of PostgreSQL |
@@ -260,7 +269,7 @@ The backend reads `backend/.env`. The file [`backend/.env.example`](backend/.env
 
 The frontend sends its API calls to `/api`. During development, Vite forwards those calls to `http://127.0.0.1:8000`. To use a different API address, set `VITE_API_URL` when building the frontend.
 
-The time zone is `Africa/Dar_es_Salaam`. Login tokens (JWT) last 2 hours and refresh for up to 30 days.
+The time zone is `Africa/Dar_es_Salaam`. Login tokens (JWT) last 30 minutes and are renewed in the background for up to 30 days.
 
 ---
 
@@ -299,7 +308,7 @@ Every endpoint is under `/api/` and needs a `Bearer` token, except login and the
 
 | Area | Endpoints |
 |---|---|
-| Auth | `POST auth/login/`, `POST auth/refresh/`, `GET auth/me/`, `POST auth/change-password/` |
+| Auth | `POST auth/login/`, `POST auth/refresh/`, `POST auth/logout/`, `GET auth/me/`, `POST auth/change-password/` (returns new tokens) |
 | Settings | `GET/PATCH meta/`, `categories/` |
 | Workers | `workers/`, `workers/<id>/`, `…/remove/`, `…/restore/`, `…/leaves/`, `…/account/?month=`, `…/shortages/` |
 | A day | `GET days/<date>/`, `PUT …/sales/`, `PUT …/payments/`, `PUT …/cash-count/`, `PUT …/attendance/`, `POST …/close/`, `GET …/pay/` |
@@ -318,7 +327,7 @@ Every endpoint is under `/api/` and needs a `Bearer` token, except login and the
 
 - Django serves the API and the built frontend from the same address.
 - Each start creates a fresh SQLite database with three months of sample data (`seed_demo --demo`). Render's free disk is wiped on restart, so the demo resets itself.
-- The sign-in screen shows a demo notice with the login (`manager` / `daftari123`) filled in, and `DEMO_MODE=1` stops visitors changing the password.
+- The sign-in screen shows a demo notice with the login (`manager` / `daftari123`) filled in. Because that login is public, `DEMO_MODE=1` stops visitors changing the password and turns off Django's admin pages.
 
 This setup is for showing the app, not for real books: the data does not survive a restart.
 
@@ -326,7 +335,7 @@ This setup is for showing the app, not for real books: the data does not survive
 
 The repository does not include a setup for a real deployment yet. These are the parts to set up:
 
-1. In `backend/.env`, set `DEBUG=0`, a long random `SECRET_KEY`, your domain in `ALLOWED_HOSTS`, and the frontend's address in `CORS_ORIGINS`. Use PostgreSQL rather than SQLite.
+1. In `backend/.env`, set `DEBUG=0`, a long random `SECRET_KEY`, your domain in `ALLOWED_HOSTS`, and the frontend's address in `CORS_ORIGINS`. Behind an HTTPS proxy, also set `HTTPS_ONLY=1` and `TRUSTED_PROXIES=1`. Use PostgreSQL rather than SQLite.
 2. Run `python manage.py migrate` and `python manage.py collectstatic`. Then serve the backend with `gunicorn config.wsgi`. WhiteNoise serves the admin's static files.
 3. Run `npm run build` in `frontend/`. Set `VITE_API_URL` first if the API runs on another address. Serve the resulting `dist/` folder from any static host.
 4. Change the manager password from the default.

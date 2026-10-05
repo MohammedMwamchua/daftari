@@ -21,11 +21,14 @@ COPY --from=frontend /app/dist /app/frontend-dist
 # gzip copies of the built screens; WhiteNoise sends them to every browser that accepts gzip
 RUN python -m whitenoise.compress /app/frontend-dist
 
+# HTTPS_ONLY: Render serves https and redirects http; TRUSTED_PROXIES: Render's proxy adds the visitor's address.
 ENV DEBUG=0 \
     USE_SQLITE=1 \
     DEMO_MODE=1 \
+    HTTPS_ONLY=1 \
+    TRUSTED_PROXIES=1 \
     FRONTEND_DIST=/app/frontend-dist
-RUN SECRET_KEY=collectstatic-only python manage.py collectstatic --noinput
+RUN SECRET_KEY=collectstatic-only-this-key-signs-nothing-at-runtime python manage.py collectstatic --noinput
 
 # The disk is wiped on every restart, so each start creates a fresh database
 # with three months of sample data. Visitors can't break the demo for long.

@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { api } from './api.js';
+import { api, tokens } from './api.js';
 import { useI } from './i18n.jsx';
 
 const q = (key, path, opts = {}) => ({ queryKey: key, queryFn: () => api.get(path), ...opts });
@@ -79,7 +79,12 @@ export function useActions() {
     addCategory: (body) => settle(api.post('/categories/', body)),
     patchCategory: (id, body) => settle(api.patch(`/categories/${id}/`, body)),
     delCategory: (id) => settle(api.del(`/categories/${id}/`)),
-    changePassword: (body) => api.post('/auth/change-password/', body),
+    // a new password ends every earlier sign-in; the server hands this device a fresh one so it stays signed in
+    changePassword: async (body) => {
+      const r = await api.post('/auth/change-password/', body);
+      if (r?.access) tokens.set({ access: r.access, refresh: r.refresh });
+      return r;
+    },
     readOpinion: (id, read) => settle(api.patch(`/opinions/${id}/`, { read })),
     readAllOpinions: () => settle(api.post('/opinions/read-all/')),
     delOpinion: (id) => settle(api.del(`/opinions/${id}/`)),

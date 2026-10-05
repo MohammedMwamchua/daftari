@@ -211,6 +211,11 @@ def _sheet(ws, header, rows, widths, total=False):
     ws.append(header)
     for row in rows:
         ws.append(row)
+    for line in ws.iter_rows():
+        for c in line:
+            # text such as a name that starts with "=" stays text: Excel must never run it as a formula
+            if c.data_type == 'f':
+                c.data_type = 's'
     for c in ws[1]:
         c.font = Font(bold=True, color='FFFFFF')
         c.fill = PatternFill('solid', fgColor=EMERALD.lstrip('#'))

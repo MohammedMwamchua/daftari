@@ -30,7 +30,11 @@ export default function Login({ onDone }) {
     if (!user.trim() || !pass) { setErr(t('Jaza jina la mtumiaji na nenosiri.', 'Enter your username and password.')); return; }
     setBusy(true); setErr('');
     try { await api.login(user.trim(), pass); onDone(); }
-    catch (ex) { setErr(ex.status === 401 || ex.status === 400 ? t('Jina au nenosiri si sahihi.', 'Wrong username or password.') : t('Imeshindwa kuunganisha na seva.', 'Could not reach the server.')); }
+    catch (ex) {
+      setErr(ex.status === 401 || ex.status === 400 ? t('Jina au nenosiri si sahihi.', 'Wrong username or password.')
+        : ex.status === 429 ? t('Majaribio mengi mno. Subiri dakika moja kisha ujaribu tena.', 'Too many attempts. Wait a minute and try again.')
+          : t('Imeshindwa kuunganisha na seva.', 'Could not reach the server.'));
+    }
     finally { setBusy(false); }
   };
 

@@ -13,6 +13,7 @@ jobs:
         working-directory: backend
     env:
       USE_SQLITE: '1'
+      DEBUG: '1'
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

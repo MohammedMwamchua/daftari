@@ -33,6 +33,8 @@ rem --- settings: without Docker, fall back to SQLite
 if not exist backend\.env (
   copy /y backend\.env.example backend\.env >nul
   where docker >nul 2>nul || (>>backend\.env echo USE_SQLITE=1)
+  rem a random secret key for this computer: it signs every sign-in token
+  "%PY%" -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(50))" >>backend\.env
 )
 findstr /r /c:"^USE_SQLITE=1" backend\.env >nul || (
   where docker >nul 2>nul || (echo backend\.env uses PostgreSQL but Docker is not installed. Add USE_SQLITE=1 to backend\.env or install Docker. & goto :fail)

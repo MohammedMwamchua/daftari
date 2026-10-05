@@ -11,10 +11,11 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 
 from . import exports, services as svc
+from .auth import tokens_for
 from .errors import Conflict
 from .models import (
     SECTIONS, Advance, Attendance, Day, Expense, ExpenseCategory, LeaveRecord, Opinion, SalaryLine, Settings,
@@ -38,7 +39,10 @@ def pmonth(value):
         raise ValidationError({'month': 'Use yyyy-mm.'})
 
 
-def pint(data, key, required=True, minimum=0, default=None):
+MAX_AMOUNT = 10 ** 12  # a trillion shillings: far above any real figure, far below what the database can hold
+
+
+def pint(data, key, required=True, minimum=0, default=None, maximum=MAX_AMOUNT):
     v = data.get(key)
     if v in (None, ''):
         if required:
@@ -50,6 +54,8 @@ def pint(data, key, required=True, minimum=0, default=None):
         raise ValidationError({key: 'Must be a whole number.'})
     if n < minimum:
         raise ValidationError({key: f'Must be at least {minimum}.'})
+    if n > maximum:
+        raise ValidationError({key: f'Must be at most {maximum}.'})
     return n
 
 
@@ -110,7 +116,8 @@ class ChangePasswordView(APIView):
         u.set_password(new)
         u.save()
         svc.audit(u, 'user.change_password', u.id)
-        return Response({'detail': 'Password changed.'})
+        # Every token issued before this moment now stops working (a stolen one too); this device gets new ones.
+        return Response({'detail': 'Password changed.', **tokens_for(u)})
 
 
 class MetaView(APIView):
@@ -534,6 +541,15 @@ class OpinionThrottle(AnonRateThrottle):
     rate = '20/hour'
 
 
+class OpinionDailyCap(SimpleRateThrottle):
+    """A ceiling for the whole form, so a flood from many devices at once cannot fill the database."""
+    scope = 'opinions-all'
+    rate = '500/day'
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {'scope': self.scope, 'ident': 'everyone'}
+
+
 def opinion_json(o):
     return {'id': o.id, 'created_at': o.created_at.isoformat(), 'source': o.source, 'topic': o.topic, 'rating': o.rating,
             'message': o.message, 'contact': o.contact, 'read': o.read_at is not None}
@@ -552,7 +568,7 @@ class OpinionSubmitView(APIView):
     """The public opinions form: no login, so customers and workers can say what they think."""
     authentication_classes = []
     permission_classes = [AllowAny]
-    throttle_classes = [OpinionThrottle]
+    throttle_classes = [OpinionThrottle, OpinionDailyCap]
 
     def post(self, request):
         data = request.data if isinstance(request.data, dict) else {}

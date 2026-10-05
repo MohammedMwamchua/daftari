@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'motion/react';
 import { Toaster } from 'sonner';
 import { CaretRight, ChatCircleText, CheckCircle, Gear, House, Notebook, SignOut, UsersThree, Wallet } from '@phosphor-icons/react';
-import { tokens } from './api.js';
+import { api, tokens } from './api.js';
 import { useDay, useMeta, useOpinionsUnread } from './hooks.js';
 import { useI } from './i18n.jsx';
 import { STEPS } from './vocab.js';
@@ -145,7 +145,7 @@ export default function App() {
   const qc = useQueryClient();
   const [authed, setAuthed] = useState(() => !!tokens.get());
   const [theme, toggle] = useTheme();
-  const logout = useCallback(() => { tokens.clear(); qc.clear(); setAuthed(false); }, [qc]);
+  const logout = useCallback(() => { api.logout(); tokens.clear(); qc.clear(); setAuthed(false); }, [qc]);
   useEffect(() => {
     window.addEventListener('daftari:logout', logout);
     return () => window.removeEventListener('daftari:logout', logout);

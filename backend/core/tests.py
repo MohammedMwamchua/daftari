@@ -4,11 +4,13 @@ import tempfile
 from contextlib import closing
 from datetime import timedelta
 from pathlib import Path
+from unittest import mock
 
+from django.conf import settings as django_settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.management import call_command
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, override_settings
 from rest_framework.test import APITestCase
 
 from core import services as svc
@@ -467,6 +469,95 @@ class OpinionsTest(APITestCase):
         self.client.patch(f"/api/opinions/{r.data['opinions'][0]['id']}/", {'read': True}, format='json')
         self.assertEqual(len(self.client.get('/api/opinions/?unread=1').data['opinions']), 4)
         self.assertEqual(len(self.client.get('/api/opinions/').data['opinions']), 5)  # no limit: everything, as before
+
+
+@override_settings(PASSWORD_HASHERS=['django.contrib.auth.hashers.MD5PasswordHasher'])  # fast hashing: many logins here
+class SecurityTest(APITestCase):
+    PW = 'Siri-Ndefu-2026!'
+
+    def setUp(self):
+        cache.clear()  # login and spam limits count in the cache
+        self.user = get_user_model().objects.create_user('meneja', password=self.PW)
+        ExpenseCategory.objects.create(key='gesi', name_sw='Gesi', name_en='Gas')
+
+    def login(self, password=None, **extra):
+        return self.client.post('/api/auth/login/', {'username': 'meneja', 'password': password or self.PW}, format='json', **extra)
+
+    def bearer(self, access):
+        c = self.client_class()
+        c.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        return c
+
+    def test_password_guessing_is_slowed_down(self):
+        codes = [self.login(f'guess{i}').status_code for i in range(11)]
+        self.assertEqual(codes[:10], [401] * 10)
+        self.assertEqual(codes[10], 429)  # the 11th try in a minute from one device
+        cache.clear()
+        # many devices guessing at one account: blocked after 30 an hour
+        codes = [self.login(f'guess{i}', REMOTE_ADDR=f'10.0.{i // 250}.{i % 250 + 1}').status_code for i in range(31)]
+        self.assertEqual((codes.count(401), codes[-1]), (30, 429))
+
+    def test_new_password_ends_every_other_sign_in(self):
+        old = self.login().data
+        r = self.bearer(old['access']).post('/api/auth/change-password/', {'current_password': self.PW, 'new_password': 'Mpya-Kabisa-2026?'}, format='json')
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(self.bearer(old['access']).get('/api/auth/me/').status_code, 401)  # a stolen token stops working
+        self.assertEqual(self.client.post('/api/auth/refresh/', {'refresh': old['refresh']}, format='json').status_code, 401)
+        self.assertEqual(self.bearer(r.data['access']).get('/api/auth/me/').status_code, 200)  # this device stays in
+        self.assertEqual(self.client.post('/api/auth/refresh/', {'refresh': r.data['refresh']}, format='json').status_code, 200)
+
+    def test_refresh_tokens_work_once_and_sign_out_ends_them(self):
+        t = self.login().data
+        self.assertEqual(self.client.post('/api/auth/refresh/', {'refresh': t['refresh']}, format='json').status_code, 200)
+        self.assertEqual(self.client.post('/api/auth/refresh/', {'refresh': t['refresh']}, format='json').status_code, 401)
+        t = self.login().data
+        self.assertEqual(self.client.post('/api/auth/logout/', {'refresh': t['refresh']}, format='json').status_code, 204)
+        self.assertEqual(self.client.post('/api/auth/refresh/', {'refresh': t['refresh']}, format='json').status_code, 401)
+        self.assertEqual(self.client.post('/api/auth/logout/', {'refresh': 'rubbish'}, format='json').status_code, 204)
+
+    def test_a_made_up_address_cannot_dodge_the_spam_limit(self):
+        with override_settings(REST_FRAMEWORK={**django_settings.REST_FRAMEWORK, 'NUM_PROXIES': 1}):
+            send = lambda i: self.client.post(  # noqa: E731  the proxy appends the real address after anything faked
+                '/api/opinions/submit/', {'source': 'customer', 'message': 'spam spam'}, format='json',
+                HTTP_X_FORWARDED_FOR=f'10.9.{i}.1, 203.0.113.7')
+            codes = [send(i).status_code for i in range(21)]
+        self.assertEqual((codes.count(201), codes[-1]), (20, 429))
+
+    def test_the_whole_form_has_a_daily_ceiling(self):
+        with mock.patch('core.views.OpinionDailyCap.rate', '3/day'):
+            codes = [self.client.post('/api/opinions/submit/', {'source': 'worker', 'message': 'maoni mengi'}, format='json',
+                                      REMOTE_ADDR=f'10.1.1.{i + 1}').status_code for i in range(4)]
+        self.assertEqual(codes, [201, 201, 201, 429])
+
+    def test_absurd_amounts_are_refused_not_crashed(self):
+        c = self.bearer(self.login().data['access'])
+        r = c.post('/api/expenses/', {'category': 'gesi', 'amount': 10 ** 30, 'reason': 'x', 'paid_from': 'simu'}, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('amount', r.data['errors'])
+
+    def test_excel_never_runs_text_as_a_formula(self):
+        from openpyxl import Workbook
+        from core import exports
+        ws = Workbook().active
+        exports._sheet(ws, ['Jina'], [['=HYPERLINK("http://evil.example","bonyeza")'], ['Amina']], [20])
+        self.assertEqual([c.data_type for c in ws['A']], ['s', 's', 's'])
+        self.assertEqual(ws['A2'].value, '=HYPERLINK("http://evil.example","bonyeza")')  # shown exactly as typed
+
+
+class ContentSecurityPolicyTest(APITestCase):
+    def test_the_inline_script_is_allowed_by_the_hash_browsers_compute(self):
+        import base64
+        import hashlib
+        from config import csp
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, 'index.html').write_bytes(b'<html><script>\r\n  var t = 1;\r\n</script></html>')  # Windows line ends
+            with override_settings(FRONTEND_DIST=d):
+                csp.policy.cache_clear()
+                policy = csp.policy()
+            csp.policy.cache_clear()
+        browser_hash = base64.b64encode(hashlib.sha256(b'\n  var t = 1;\n').digest()).decode()  # browsers see LF only
+        self.assertIn(f"script-src 'self' 'sha256-{browser_hash}'", policy)
+        self.assertIn("frame-ancestors 'none'", policy)
 
 
 class BackupTest(TransactionTestCase):

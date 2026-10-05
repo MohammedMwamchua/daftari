@@ -71,6 +71,14 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, data);
     tokens.set(data);
   },
+  /* Signing out also ends this sign-in on the server, so a copied refresh token is useless afterwards. */
+  logout() {
+    const t = read();
+    if (!t?.refresh) return Promise.resolve();
+    return fetch(`${BASE}/auth/logout/`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh: t.refresh }),
+    }).catch(() => {});
+  },
   /* The public opinions form. Sent without the manager's login, so an old session can never get in the way. */
   async submitOpinion(body) {
     const res = await fetch(`${BASE}/opinions/submit/`, {
