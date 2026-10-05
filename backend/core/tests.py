@@ -544,6 +544,22 @@ class SecurityTest(APITestCase):
         self.assertEqual(ws['A2'].value, '=HYPERLINK("http://evil.example","bonyeza")')  # shown exactly as typed
 
 
+class PasswordStorageTest(APITestCase):
+    def test_an_old_password_still_works_and_is_converted_to_argon2(self):
+        from django.contrib.auth.hashers import identify_hasher, make_password
+        u = get_user_model().objects.create(username='meneja', password=make_password('Siri-Ya-Zamani-1', hasher='pbkdf2_sha256'))
+        login = lambda: self.client.post('/api/auth/login/', {'username': 'meneja', 'password': 'Siri-Ya-Zamani-1'}, format='json')  # noqa: E731
+        first = login()
+        self.assertEqual(first.status_code, 200)
+        u.refresh_from_db()
+        self.assertEqual(identify_hasher(u.password).algorithm, 'argon2')  # converted at this sign-in
+        c = self.client_class()
+        c.credentials(HTTP_AUTHORIZATION=f"Bearer {first.data['access']}")
+        self.assertEqual(c.get('/api/auth/me/').status_code, 200)  # the session from that sign-in works
+        self.assertEqual(login().status_code, 200)  # and so does the next sign-in
+        self.assertEqual(self.client.post('/api/auth/login/', {'username': 'meneja', 'password': 'wrong'}, format='json').status_code, 401)
+
+
 class ContentSecurityPolicyTest(APITestCase):
     def test_the_inline_script_is_allowed_by_the_hash_browsers_compute(self):
         import base64

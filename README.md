@@ -184,6 +184,7 @@ A table shows how sales, expenses and daily pay add up day by day. On the last d
 
 ### Security
 - **Sign-in:** at most 10 attempts a minute from one device and 30 an hour against one account, so passwords cannot be guessed at speed.
+- **Passwords** are stored with Argon2, Django's recommended method; older stored passwords are converted at their next sign-in.
 - **Sessions:** access tokens last 30 minutes and are renewed in the background. Each refresh token works once. Signing out, or changing the password, ends every earlier sign-in, including a stolen one; the device that changed the password stays signed in.
 - **Feedback form:** 20 sends an hour per device and 500 a day in total; with `TRUSTED_PROXIES` set, a visitor cannot dodge the limit by faking their address.
 - **In production** (when Django serves the screens): a Content-Security-Policy lets only the app's own scripts run, no other site may show the pages in a frame, and with `HTTPS_ONLY=1` browsers are told to use https only.

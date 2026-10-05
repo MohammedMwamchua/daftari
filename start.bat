@@ -16,7 +16,7 @@ if not exist "%PY%" (
   echo Creating the Python environment...
   python -m venv backend\.venv || goto :fail
 )
-"%PY%" -c "import django, rest_framework_simplejwt, corsheaders, dotenv, reportlab, openpyxl" >nul 2>nul || (
+"%PY%" -c "import django, rest_framework_simplejwt, corsheaders, dotenv, reportlab, openpyxl, argon2" >nul 2>nul || (
   echo Installing backend packages...
   "%PY%" -m pip install -q -r backend\requirements.txt || goto :fail
 )
