@@ -103,7 +103,7 @@ function SalesTab({ ym, day, pickDay }) {
           <div className="kpi gold"><small>{t('Siku bora', 'Best day')}</small><b>{r.best ? fmtDate(r.best.date) : '—'}</b><small>{r.best ? tsh(r.best.total) : ''}</small></div>
         </div>
 
-        <div className="grid-2" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.6fr)', marginBottom: 22 }}>
+        <div className="grid-2 grid-chart" style={{ marginBottom: 22 }}>
           <Rise className="panel">
             <div className="panel-head"><h2>{t('Taslimu na simu', 'Cash and mobile')}</h2></div>
             <div className="donut-wrap">
@@ -128,18 +128,19 @@ function SalesTab({ ym, day, pickDay }) {
         <div className="sec-head"><div><h2>{t('Kila siku', 'Every day')}</h2><p className="muted">{t('Bonyeza tarehe kuona kila kitu cha siku hiyo.', 'Click a date to see everything for that day.')}</p></div></div>
         <div className="tbl-wrap">
           <table className="tbl">
-            <thead><tr><th>{t('Tarehe', 'Date')}</th><th>{t('Banda', 'Stall')}</th><th>{t('Mgahawa', 'Restaurant')}</th><th>{t('Mauzo', 'Sales')}</th><th>{t('Matumizi', 'Expenses')}</th><th>{t('Tofauti', 'Diff.')}</th></tr></thead>
+            <thead><tr><th>{t('Tarehe', 'Date')}</th><th>{t('Banda', 'Stall')}</th><th>{t('Mgahawa', 'Restaurant')}</th><th>{t('Mauzo', 'Sales')}</th><th>{t('Matumizi', 'Expenses')}</th><th>{t('Malipo', 'Daily pay')}</th><th>{t('Tofauti', 'Diff.')}</th></tr></thead>
             <tbody>
               {r.days.map((d) => (
                 <tr key={d.date} className={d.date === day ? 'sel' : undefined} aria-current={d.date === day ? 'date' : undefined}>
                   <td><button type="button" className="linkcell" onClick={() => show(d.date)}>{dayShort(d.dow)} {fmtDate(d.date)}</button></td>
                   <td>{num(d.banda.cash + d.banda.mobile)}</td><td>{num(d.mgahawa.cash + d.mgahawa.mobile)}</td><td><b>{num(d.total)}</b></td>
                   <td>{d.expenses ? num(d.expenses) : '0'}</td>
+                  <td>{d.payments ? num(d.payments) : '0'}</td>
                   <td>{d.closed ? diffCell(d.diff) : <Chip tone="warn">{t('Haijafungwa', 'Open')}</Chip>}</td>
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr><td>{t('JUMLA', 'TOTAL')}</td><td>{num(r.banda)}</td><td>{num(r.mgahawa)}</td><td>{num(r.total)}</td><td>{num(r.expenses_total)}</td><td>{diffCell(r.diff_total)}</td></tr></tfoot>
+            <tfoot><tr><td>{t('JUMLA', 'TOTAL')}</td><td>{num(r.banda)}</td><td>{num(r.mgahawa)}</td><td>{num(r.total)}</td><td>{num(r.expenses_total)}</td><td>{num(r.payments_total)}</td><td>{diffCell(r.diff_total)}</td></tr></tfoot>
           </table>
         </div>
       </section>
@@ -152,7 +153,8 @@ function DayPanel({ date }) {
   const q = useDay(date, { placeholderData: keepPreviousData });
   const d = q.data;
   if (!d) return <PageSkeleton />;
-  const left = d.sales_total - d.expenses_total;
+  const left = d.sales_total - d.expenses_total - d.payments_total;
+  const paid = d.payments.filter((x) => x.amount);
   return (
     <section id="siku-moja" className="day-panel" style={{ opacity: q.isPlaceholderData ? 0.55 : 1 }}>
       <div className="sec-head">
@@ -167,7 +169,7 @@ function DayPanel({ date }) {
       <div className="kpis">
         <div className="kpi accent"><small>{t('Mauzo', 'Sales')}</small><b>{tsh(d.sales_total)}</b></div>
         <div className="kpi"><small>{t('Matumizi', 'Expenses')}</small><b>{tsh(d.expenses_total)}</b></div>
-        <div className="kpi"><small>{t('Mauzo baada ya matumizi', 'Sales after expenses')}</small><b style={{ color: left < 0 ? 'var(--bad)' : undefined }}>{left < 0 ? `− ${tsh(-left)}` : tsh(left)}</b></div>
+        <div className="kpi"><small>{t('Baki baada ya matumizi na malipo', 'Left after expenses and daily pay')}</small><b style={{ color: left < 0 ? 'var(--bad)' : undefined }}>{left < 0 ? `− ${tsh(-left)}` : tsh(left)}</b></div>
         <div className="kpi"><small>{t('Tofauti ya pesa', 'Cash difference')}</small><b style={{ color: d.difference_total < 0 ? 'var(--bad)' : undefined }}>{d.has_count ? (d.difference_total === 0 ? tsh(0) : signed(d.difference_total)) : '—'}</b></div>
       </div>
 
@@ -185,6 +187,20 @@ function DayPanel({ date }) {
           {d.expenses.length === 0 ? <Empty>{t('Hakuna matumizi siku hii.', 'No expenses this day.')}</Empty> : (
             <ul className="list">{d.expenses.map((e) => <li key={e.id}><Chip>{t(e.category_sw, e.category_en)}</Chip><span className="li-main"><strong>{e.reason}</strong><span>{p(PAID_FROM[e.paid_from])}{e.section ? ` · ${p(SECTIONS[e.section])}` : ''}</span></span><span className="li-amt">{tsh(e.amount)}</span></li>)}</ul>
           )}
+          {paid.length ? (
+            <>
+              <h3 style={{ margin: '22px 0 10px' }}>{t('Malipo ya siku', 'Daily pay')}</h3>
+              <ul className="list">
+                {paid.map((x) => (
+                  <li key={`p${x.worker_id}`}>
+                    <Chip tone="info">{t('Malipo', 'Paid')}</Chip>
+                    <span className="li-main"><strong>{x.name}</strong><span>{p(PAID_FROM[x.paid_from])}{x.section ? ` · ${p(SECTIONS[x.section])}` : ''}</span></span>
+                    <span className="li-amt">{tsh(x.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
           {d.shortages.length || d.advances.length ? (
             <>
               <h3 style={{ margin: '22px 0 10px' }}>{t('Upungufu na advansi', 'Shortages and advances')}</h3>
@@ -283,7 +299,7 @@ function DaySalaries({ date, wholeMonth }) {
       </div>
       <div style={{ marginBottom: 18 }}>
         <Callout tone="info">
-          {t('Mshahara wa mwezi huhesabiwa kama 1/30 kwa siku, kama makato yanavyohesabiwa. Kuidhinisha na kulipa mishahara ni kwenye orodha ya mwezi mzima.', 'A monthly salary counts as 1/30 per day, the same way deductions are worked out. Approving and paying salaries happens on the whole-month list.')}{' '}
+          {t('Mshahara wa mwezi huhesabiwa kama 1/30 kwa siku, kama makato yanavyohesabiwa. Wanaolipwa kwa siku wanaonyesha kiasi kilichoandikwa kwenye hatua ya Malipo. Kuidhinisha na kulipa mishahara ni kwenye orodha ya mwezi mzima.', 'A monthly salary counts as 1/30 per day, the same way deductions are worked out. Daily-paid workers show what was entered in the Malipo step. Approving and paying salaries happens on the whole-month list.')}{' '}
           <button type="button" className="btn-ghost" style={{ padding: 0 }} onClick={wholeMonth}>{t('Ona orodha ya mwezi', 'See the month list')}</button>
         </Callout>
       </div>
@@ -321,12 +337,12 @@ function DayReport({ date }) {
     <div style={{ opacity: isPlaceholderData ? 0.55 : 1 }}>
       <Rise className="panel" style={{ marginBottom: 22 }}>
         <div className="panel-head">
-          <div><h2>{t('Faida hadi siku hii', 'Profit up to this day')}</h2><p className="muted">{t(`Mauzo na matumizi ya ${span} yamejumlishwa`, `Sales and expenses for ${span} added together`)}</p></div>
+          <div><h2>{t('Pesa iliyobaki (faida) hadi siku hii', 'Money left (profit) up to this day')}</h2><p className="muted">{t(`Mauzo, matumizi na malipo ya ${span} yamejumlishwa`, `Sales, expenses and daily pay for ${span} added together`)}</p></div>
           <DownloadButtons kind="day" id={r.date} />
         </div>
         <div className="profit">
           <p className="display amount-lg" style={{ fontSize: 'clamp(2.2rem, 1.5rem + 3vw, 3.4rem)', color: good ? 'var(--good)' : 'var(--bad)' }}><span className="cur">TSh</span>{good ? '' : '−'}<CountUp value={Math.abs(r.profit)} /></p>
-          <p className="eq"><span>{tsh(r.total)} {t(`mauzo (${span})`, `sales (${span})`)}</span> − <span>{tsh(r.expenses_total)} {t(`matumizi (${span})`, `expenses (${span})`)}</span> − <span>{tsh(r.salaries_total)} {t('mishahara ya mwezi mzima', "the whole month's salaries")}</span></p>
+          <p className="eq"><span>{tsh(r.total)} {t(`mauzo (${span})`, `sales (${span})`)}</span> − <span>{tsh(r.expenses_total)} {t(`matumizi (${span})`, `expenses (${span})`)}</span> − <span>{tsh(r.payments_total)} {t(`malipo ya siku (${span})`, `daily pay (${span})`)}</span> − <span>{tsh(r.salaries_total)} {t('mishahara ya mwezi mzima', "the whole month's salaries")}</span></p>
         </div>
       </Rise>
       <div className="two" style={{ marginTop: 0 }}>
@@ -339,7 +355,7 @@ function DayReport({ date }) {
             <Leader label={t('Pesa za simu', 'Mobile money')} value={tsh(r.mobile)} />
             <Leader strong label={t('Jumla', 'Total')} value={tsh(r.total)} />
           </div>
-          <p className="muted" style={{ marginTop: 12 }}>{t(`${longDate(r.date, r.dow)} peke yake: mauzo ${tsh(r.day_sales)}, matumizi ${tsh(r.day_expenses)}`, `${longDate(r.date, r.dow)} on its own: sales ${tsh(r.day_sales)}, expenses ${tsh(r.day_expenses)}`)}</p>
+          <p className="muted" style={{ marginTop: 12 }}>{t(`${longDate(r.date, r.dow)} peke yake: mauzo ${tsh(r.day_sales)}, matumizi ${tsh(r.day_expenses)}, malipo ${tsh(r.day_payments)}`, `${longDate(r.date, r.dow)} on its own: sales ${tsh(r.day_sales)}, expenses ${tsh(r.day_expenses)}, daily pay ${tsh(r.day_payments)}`)}</p>
         </Rise>
         <Rise className="panel" delay={0.06}>
           <div className="panel-head"><h2>{t('Matumizi kwa kundi', 'Expenses by category')}</h2><span className="muted">{span}</span></div>
@@ -350,11 +366,11 @@ function DayReport({ date }) {
       {r.running.length === 0 ? <Empty>{t('Hakuna mauzo wala matumizi bado mwezi huu.', 'No sales or expenses yet this month.')}</Empty> : (
         <div className="tbl-wrap">
           <table className="tbl">
-            <thead><tr><th>{t('Tarehe', 'Date')}</th><th>{t('Mauzo ya siku', "Day's sales")}</th><th>{t('Matumizi ya siku', "Day's expenses")}</th><th>{t('Mauzo jumla', 'Sales so far')}</th><th>{t('Matumizi jumla', 'Expenses so far')}</th></tr></thead>
+            <thead><tr><th>{t('Tarehe', 'Date')}</th><th>{t('Mauzo ya siku', "Day's sales")}</th><th>{t('Matumizi ya siku', "Day's expenses")}</th><th>{t('Malipo ya siku', "Day's pay")}</th><th>{t('Mauzo jumla', 'Sales so far')}</th><th>{t('Matumizi jumla', 'Expenses so far')}</th><th>{t('Malipo jumla', 'Pay so far')}</th></tr></thead>
             <tbody>
               {r.running.map((x) => (
                 <tr key={x.date} className={x.date === r.date ? 'sel' : undefined}>
-                  <td>{dayShort(x.dow)} {fmtDate(x.date)}</td><td>{num(x.sales)}</td><td>{num(x.expenses)}</td><td><b>{num(x.sales_to_date)}</b></td><td><b>{num(x.expenses_to_date)}</b></td>
+                  <td>{dayShort(x.dow)} {fmtDate(x.date)}</td><td>{num(x.sales)}</td><td>{num(x.expenses)}</td><td>{num(x.payments)}</td><td><b>{num(x.sales_to_date)}</b></td><td><b>{num(x.expenses_to_date)}</b></td><td><b>{num(x.payments_to_date)}</b></td>
                 </tr>
               ))}
             </tbody>
@@ -421,19 +437,20 @@ function SalariesTab({ ym }) {
 
   return (
     <>
-      <div className="kpis">
+      <div className="kpis" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))' }}>
         <div className="kpi accent"><small>{t('Jumla ya kulipwa', 'Total to pay')}</small><b>{tsh(s.total_net)}</b></div>
         <div className="kpi"><small>{t('Mshahara wa msingi', 'Base pay')}</small><b>{tsh(s.total_base)}</b></div>
         <div className="kpi"><small>{t('Advansi', 'Advances')}</small><b>{tsh(s.total_advances)}</b></div>
         <div className="kpi"><small>{t('Makato ya upungufu', 'Shortage deductions')}</small><b>{tsh(s.total_shortages)}</b></div>
+        <div className="kpi"><small>{t('Malipo ya kila siku', 'Daily pay')}</small><b>{tsh(s.total_daily)}</b></div>
       </div>
 
       <section className="panel" style={{ marginBottom: 22 }}>
         <div className="panel-head"><div><h2>{t('Siku maalum zinahesabiwaje?', 'How do these days count?')}</h2><p className="muted">{locked ? t('Imefungwa baada ya kuidhinisha.', 'Locked after approval.') : t('Weka mara moja kulingana na sera yako.', 'Set once to match your policy.')}</p></div></div>
-        <div className="rules">
-          <span className="h" /><span className="h">{t('Mshahara wa mwezi: kata?', 'Monthly salary: deduct it?')}</span><span className="h">{t('Malipo ya siku: lipa?', 'Daily pay: pay it?')}</span>
+        <div className="rules rules-yn">
+          <span className="h" /><span className="h">{t('Mshahara wa mwezi: kata?', 'Monthly salary: deduct it?')}</span>
           {kinds.map(([k, label]) => (
-            <Row key={k}><strong>{label}</strong>{yn(s.rules[k].cut, (v) => setRule(k, 'cut', v))}{yn(s.rules[k].pay, (v) => setRule(k, 'pay', v))}</Row>
+            <Row key={k}><strong>{label}</strong>{yn(s.rules[k].cut, (v) => setRule(k, 'cut', v))}</Row>
           ))}
         </div>
       </section>
@@ -457,6 +474,26 @@ function SalariesTab({ ym }) {
           <tfoot><tr><td>{t('JUMLA', 'TOTAL')}</td><td>{num(s.total_base)}</td><td>{s.total_advances ? `− ${num(s.total_advances)}` : '0'}</td><td>{s.total_shortages ? `− ${num(s.total_shortages)}` : '0'}</td><td>{num(s.total_net)}</td>{locked ? <td /> : null}</tr></tfoot>
         </table>
       </div>
+
+      <section style={{ marginTop: 28 }}>
+        <div className="sec-head"><div><h2>{t('Wanaolipwa kila siku', 'Paid daily')}</h2><p className="muted">{t('Hulipwa kila siku kwenye hatua ya Malipo, kwa hiyo hawako kwenye orodha ya mwezi.', 'Paid each day in the Malipo step, so they are not on the monthly list.')}</p></div></div>
+        {s.daily.length === 0 ? <Empty>{t('Hakuna mfanyakazi anayelipwa kwa siku.', 'No daily-paid workers.')}</Empty> : (
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead><tr><th>{t('Mfanyakazi', 'Worker')}</th><th>{t('Kiwango', 'Rate')}</th><th>{t('Siku alizolipwa', 'Days paid')}</th><th>{t('Amelipwa', 'Paid')}</th></tr></thead>
+              <tbody>
+                {s.daily.map((x) => (
+                  <tr key={x.worker.id}>
+                    <td><Link to={`/wafanyakazi/${x.worker.id}?tab=account`} className="linkcell" style={{ textDecoration: 'none' }}>{x.worker.name}</Link></td>
+                    <td>{tsh(x.rate)} / {t('siku', 'day')}</td><td>{x.days}</td><td><b>{num(x.total)}</b></td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr><td>{t('JUMLA', 'TOTAL')}</td><td /><td>{sum(s.daily, (x) => x.days)}</td><td>{num(s.total_daily)}</td></tr></tfoot>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section style={{ marginTop: 28 }}>
         <div className="sec-head"><h2>{t('Makato ya upungufu', 'Shortage deductions')}</h2></div>
@@ -499,10 +536,10 @@ function ReportsTab({ ym }) {
     <>
       {ym === meta.today.slice(0, 7) ? <div style={{ marginBottom: 16 }}><Callout tone="info">{t('Mwezi haujaisha. Mishahara ya mwezi mzima huhesabiwa tangu siku ya kwanza, kwa hiyo faida huonekana ndogo hadi mauzo yafikie.', 'The month is not over. Monthly salaries count in full from day one, so profit looks low until sales catch up.')}</Callout></div> : null}
       <Rise className="panel" style={{ marginBottom: 22 }}>
-        <div className="panel-head"><div><h2>{t('Faida ya mwezi', 'Profit for the month')}</h2><p className="muted">{monthName(ym)}</p></div><DownloadButtons kind="month" id={ym} /></div>
+        <div className="panel-head"><div><h2>{t('Pesa iliyobaki (faida) ya mwezi', 'Money left (profit) for the month')}</h2><p className="muted">{monthName(ym)}</p></div><DownloadButtons kind="month" id={ym} /></div>
         <div className="profit">
           <p className="display amount-lg" style={{ fontSize: 'clamp(2.2rem, 1.5rem + 3vw, 3.4rem)', color: good ? 'var(--good)' : 'var(--bad)' }}><span className="cur">TSh</span>{good ? '' : '−'}<CountUp value={Math.abs(r.profit)} /></p>
-          <p className="eq"><span>{tsh(r.total)} {t('mauzo', 'sales')}</span> − <span>{tsh(r.expenses_total)} {t('matumizi', 'expenses')}</span> − <span>{tsh(r.salaries_total)} {t('mishahara', 'salaries')}</span></p>
+          <p className="eq"><span>{tsh(r.total)} {t('mauzo', 'sales')}</span> − <span>{tsh(r.expenses_total)} {t('matumizi', 'expenses')}</span> − <span>{tsh(r.payments_total)} {t('malipo ya kila siku', 'daily pay')}</span> − <span>{tsh(r.salaries_total)} {t('mishahara', 'salaries')}</span></p>
         </div>
       </Rise>
       <div className="two" style={{ marginTop: 0 }}>

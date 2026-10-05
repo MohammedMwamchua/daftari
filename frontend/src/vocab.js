@@ -27,7 +27,7 @@ export const STATUS = {
 };
 export const PAID_FROM = { droo: ['Droo', 'Till'], simu: ['Pesa za simu', 'Mobile money'], other: ['Nyingine', 'Other'] };
 export const STEPS = [
-  ['Mauzo', 'Sales'], ['Matumizi', 'Expenses'],
+  ['Mauzo', 'Sales'], ['Matumizi', 'Expenses'], ['Malipo', 'Daily pay'],
   ['Hesabu ya pesa', 'Cash count'], ['Mahudhurio', 'Attendance'], ['Funga siku', 'Close the day'],
 ];
 export const REMOVE_REASONS = { left: ['Ameacha kazi', 'Left the job'], ended: ['Mkataba umeisha', 'Contract ended'], other: ['Nyingine', 'Other'] };

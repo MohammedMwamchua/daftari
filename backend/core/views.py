@@ -238,8 +238,11 @@ class WorkerView(APIView):
 
     def patch(self, request, pk):
         w = get_object_or_404(Worker, pk=pk)
+        before = (w.pay_type, w.rate)
         apply_worker_fields(w, request.data, False)
         w.save()
+        if (w.pay_type, w.rate) != before:  # how someone is paid changes the money, so keep a record
+            svc.audit(request.user, 'worker.pay', w.id, pay_type=w.pay_type, rate=w.rate, was={'pay_type': before[0], 'rate': before[1]})
         return Response(worker_json(w))
 
 
@@ -383,13 +386,34 @@ class DayAttendanceView(APIView):
         return Response(svc.day_payload(d))
 
 
+class DayPaymentsView(APIView):
+    """The close-day Malipo step: [{worker_id, amount, paid_from, section}]. An empty amount removes a payment."""
+    def put(self, request, d):
+        d = pdate(d)
+        if not isinstance(request.data, list):
+            raise ValidationError({'payments': 'Send a list.'})
+        rows = []
+        for i, item in enumerate(request.data):
+            if not isinstance(item, dict):
+                raise ValidationError({str(i): 'Each payment must be an object.'})
+            w = get_object_or_404(Worker, pk=pint(item, 'worker_id', minimum=1))
+            amount = pint(item, 'amount', required=False, default=0)
+            paid_from, section = '', ''
+            if amount:
+                paid_from = pchoice(item, 'paid_from', ['droo', 'simu', 'other'])
+                section = pchoice(item, 'section', SECTIONS) if paid_from == 'droo' else ''
+            rows.append({'worker_id': w.id, 'amount': amount, 'paid_from': paid_from, 'section': section})
+        svc.save_payments(d, rows, request.user)
+        return Response(svc.day_payload(d))
+
+
 class DayVisitView(APIView):
     def post(self, request, d):
         d = pdate(d)
         day = svc.get_day(d)
         step = pint(request.data, 'step')
-        if step > 4:
-            raise ValidationError({'step': '0 to 4.'})
+        if step > 5:
+            raise ValidationError({'step': '0 to 5.'})
         if not day.closed and step not in day.visited:
             day.visited = sorted({*day.visited, step})
             day.save(update_fields=['visited'])
@@ -492,8 +516,8 @@ class DayReportView(APIView):
         d = pdate(d)
         fmt = request.query_params.get('file', 'json')
         lang = 'en' if request.query_params.get('lang') == 'en' else 'sw'
-        if fmt == 'pdf':
-            return _file_response('pdf', f'mauzo-{d}', exports.day_pdf(svc.day_payload(d), lang))
+        if fmt == 'pdf':  # the day sheet plus the Ripoti figures (profit up to this day, with daily pay)
+            return _file_response('pdf', f'mauzo-{d}', exports.day_pdf(svc.day_payload(d), svc.day_report(d), lang))
         if fmt == 'xlsx':
-            return _file_response('xlsx', f'mauzo-{d}', exports.day_xlsx(svc.day_payload(d), lang))
+            return _file_response('xlsx', f'mauzo-{d}', exports.day_xlsx(svc.day_payload(d), svc.day_report(d), lang))
         return Response(svc.day_report(d))

@@ -8,7 +8,7 @@ from django.db import transaction
 
 from core import services as svc
 from core.models import (
-    SECTIONS, Advance, Attendance, Day, DaySection, Expense, ExpenseCategory, LeaveRecord, Settings,
+    SECTIONS, Advance, Attendance, DailyPayment, Day, DaySection, Expense, ExpenseCategory, LeaveRecord, Settings,
     Shortage, Worker,
 )
 
@@ -58,7 +58,19 @@ class Command(BaseCommand):
             weekend = svc.js_dow(d) in (5, 6, 0)
             total = 300000 + rnd.randint(0, 10) * 18000 + (90000 if weekend else 0)
             b = round(total * rnd.uniform(0.31, 0.36) / 500) * 500
-            day = Day.objects.create(date=d, closed_at=svc.timezone.now(), visited=[0, 1, 2, 3, 4])
+            day = Day.objects.create(date=d, closed_at=svc.timezone.now(), visited=[0, 1, 2, 3, 4, 5])
+            worked = {}
+            for w in ws:
+                if svc.js_dow(d) == w.day_off:
+                    continue
+                worked[w] = rnd.choice(['present'] * 14 + ['late', 'absent'])
+                Attendance.objects.create(worker=w, date=d, status=worked[w])
+            # daily-paid workers are handed their day's pay from the restaurant till
+            wages = 0
+            for w, st in worked.items():
+                if w.pay_type == 'daily' and st in ('present', 'late'):
+                    DailyPayment.objects.create(worker=w, date=d, amount=w.rate, paid_from='droo', section='mgahawa')
+                    wages += w.rate
             diff = rnd.choice([0] * 7 + [-2000, 1000, -3500])
             for s, amount in zip(SECTIONS, (b, total - b)):
                 mobile = round(amount * rnd.uniform(0.34, 0.42) / 500) * 500
@@ -66,14 +78,10 @@ class Command(BaseCommand):
                 ds = DaySection.objects.create(day=day, section=s, cash=amount - mobile, mobile=mobile, cashier=cashier,
                                                float_amount=50000 if s == 'banda' else 80000,
                                                difference=diff if s == 'mgahawa' else 0)
-                ds.counted = ds.float_amount + ds.cash + (ds.difference or 0)
+                ds.counted = ds.float_amount + ds.cash - (wages if s == 'mgahawa' else 0) + (ds.difference or 0)
                 ds.save()
                 if s == 'mgahawa' and diff < 0:
                     Shortage.objects.create(worker=cashier, date=d, amount=-diff, section=s, source='cash_count')
-            for w in ws:
-                if svc.js_dow(d) == w.day_off:
-                    continue
-                Attendance.objects.create(worker=w, date=d, status=rnd.choice(['present'] * 14 + ['late', 'absent']))
             if d.day in (1, 6, 10, 14, 18, 22, 26):
                 Expense.objects.create(date=d, category=cats['malighafi'], amount=rnd.randint(54, 66) * 10000,
                                        reason='Viazi, nyama na mafuta', paid_from='simu')

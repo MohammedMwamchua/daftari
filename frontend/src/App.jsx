@@ -1,12 +1,13 @@
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { NavLink, Route, Routes, useLocation, Navigate } from 'react-router-dom';
+import { Link, NavLink, Route, Routes, useLocation, Navigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'motion/react';
 import { Toaster } from 'sonner';
-import { Gear, House, Notebook, SignOut, UsersThree, Wallet } from '@phosphor-icons/react';
+import { CaretRight, CheckCircle, Gear, House, Notebook, SignOut, UsersThree, Wallet } from '@phosphor-icons/react';
 import { tokens } from './api.js';
-import { useMeta } from './hooks.js';
+import { useDay, useMeta } from './hooks.js';
 import { useI } from './i18n.jsx';
+import { STEPS } from './vocab.js';
 import { Logo, PageSkeleton } from './components/ui.jsx';
 import { Tools, useTheme } from './components/Tools.jsx';
 import Login from './pages/Login.jsx';
@@ -16,6 +17,31 @@ const Money = lazy(() => import('./pages/Money.jsx'));
 const Settings = lazy(() => import('./pages/Settings.jsx'));
 const WorkersList = lazy(() => import('./pages/Workers.jsx').then((m) => ({ default: m.WorkersList })));
 const WorkerDetail = lazy(() => import('./pages/Workers.jsx').then((m) => ({ default: m.WorkerDetail })));
+
+/* Today's close-day progress in the sidebar: one glance, one click to the next step. */
+function TodayCard() {
+  const { t, fmtDate, dayName } = useI();
+  const today = useMeta().data.today;
+  const { data: d } = useDay(today);
+  if (!d) return null;
+  const done = d.closed ? STEPS.length : d.visited.length;
+  const open = STEPS.findIndex((_, i) => !d.visited.includes(i));
+  const next = open < 0 ? STEPS.length - 1 : open;
+  return (
+    <Link to={d.closed ? '/' : `/funga/${next}`} className={`today-card${d.closed ? ' is-closed' : ''}`}>
+      <span className="tc-head">
+        <span><small>{t('Leo', 'Today')}</small><b>{dayName(d.dow)}, {fmtDate(d.date)}</b></span>
+        <CaretRight size={16} weight="bold" aria-hidden="true" />
+      </span>
+      <span className="tc-bar" aria-hidden="true"><i style={{ width: `${(done / STEPS.length) * 100}%` }} /></span>
+      <span className="tc-foot">
+        {d.closed
+          ? <><CheckCircle size={15} weight="fill" aria-hidden="true" />{t('Siku imefungwa', 'Day closed')}</>
+          : <>{t(`Hatua ${done} kati ya ${STEPS.length}`, `${done} of ${STEPS.length} steps`)}<span>{t(`Inayofuata: ${STEPS[next][0]}`, `Next: ${STEPS[next][1]}`)}</span></>}
+      </span>
+    </Link>
+  );
+}
 
 function Shell({ onLogout }) {
   const { t } = useI();
@@ -32,7 +58,7 @@ function Shell({ onLogout }) {
       {({ isActive }) => (
         <>
           {isActive ? <motion.span layoutId={pillId} className="pill" transition={{ type: 'spring', stiffness: 460, damping: 38 }} /> : null}
-          <Icon size={mobile ? 24 : 22} weight={isActive ? 'fill' : 'duotone'} />
+          <span className="ico"><Icon size={mobile ? 24 : 20} weight={isActive ? 'fill' : 'duotone'} /></span>
           <span>{label}</span>
         </>
       )}
@@ -44,15 +70,19 @@ function Shell({ onLogout }) {
     <div className="app">
       <aside className="rail">
         <div className="brand"><Logo size={44} /><div><b>Daftari</b><small>{t('Daftari la mgahawa', 'Restaurant ledger')}</small></div></div>
+        <p className="nav-label" aria-hidden="true">{t('Menyu', 'Menu')}</p>
         <nav className="nav" aria-label={t('Menyu kuu', 'Main menu')}><Links pillId="rail-pill" /></nav>
         <div className="rail-foot">
+          <TodayCard />
           <Tools theme={theme} toggle={toggle} />
-          <NavLink to="/mipangilio" className="userbox" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <Gear size={20} weight="duotone" /><span>{t('Mipangilio', 'Settings')}</span>
-          </NavLink>
-          <button type="button" className="userbox" onClick={onLogout} style={{ border: 0, color: 'inherit', textAlign: 'left', cursor: 'pointer' }}>
-            <SignOut size={20} weight="duotone" /><span>{t('Toka', 'Sign out')}</span>
-          </button>
+          <div className="rail-links">
+            <NavLink to="/mipangilio" className="userbox">
+              <Gear size={20} weight="duotone" /><span>{t('Mipangilio', 'Settings')}</span>
+            </NavLink>
+            <button type="button" className="userbox out" onClick={onLogout}>
+              <SignOut size={20} weight="duotone" /><span>{t('Toka', 'Sign out')}</span>
+            </button>
+          </div>
         </div>
       </aside>
 

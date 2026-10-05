@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { animate, motion, useMotionValue, useTransform } from 'motion/react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { CheckCircle, Info, TrayArrowDown, Warning, WarningCircle, X } from '@phosphor-icons/react';
@@ -61,8 +61,11 @@ export function Seg({ options, value, onChange, label, disabled, full }) {
 
 export function Tabs({ items, value, onChange, label }) {
   const id = useId();
+  const ref = useRef(null);
+  // on a narrow screen the tab bar scrolls sideways; keep the selected tab in view
+  useEffect(() => { ref.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [value]);
   return (
-    <div className="tabs" role="tablist" aria-label={label}>
+    <div className="tabs" role="tablist" aria-label={label} ref={ref}>
       {items.map(([v, text]) => (
         <button key={v} type="button" role="tab" className="tab" aria-selected={value === v} onClick={() => onChange(v)}>
           {text}

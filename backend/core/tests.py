@@ -11,7 +11,7 @@ from django.test import TransactionTestCase
 from rest_framework.test import APITestCase
 
 from core import services as svc
-from core.models import Attendance, ExpenseCategory, Settings, Worker
+from core.models import Attendance, AuditLog, DailyPayment, ExpenseCategory, Settings, Worker
 
 
 class RulesTest(APITestCase):
@@ -186,6 +186,7 @@ class RulesTest(APITestCase):
         self.assertEqual(svc.month_employed_days(self.cashier, first, last), (last - first).days + 1)
 
     def test_unpaid_salary_carries_forward(self):
+        # the monthly-paid cashier: daily-paid workers are paid each day and are not on the monthly list
         self.sales()
         self.client.put(f'/api/days/{self.d}/cash-count/', {'banda': 50000 + 98000, 'mgahawa': 280000}, format='json')
         self.mark_all()
@@ -193,28 +194,28 @@ class RulesTest(APITestCase):
         ym = svc.ym_of(self.today)
         r = self.client.post(f'/api/salary/{ym}/approve/')
         self.assertEqual(r.status_code, 200)
-        cook_net = next(l['net'] for l in r.data['lines'] if l['worker']['id'] == self.cook.id)
-        self.assertGreater(cook_net, 0)
+        net = next(l['net'] for l in r.data['lines'] if l['worker']['id'] == self.cashier.id)
+        self.assertGreater(net, 0)
 
-        # approved but not marked paid -> it's money the company owes the cook, visible right away
-        w = self.client.get(f'/api/workers/{self.cook.id}/').data
-        self.assertEqual(w['company_owes'], cook_net)
+        # approved but not marked paid -> it's money the company owes the cashier, visible right away
+        w = self.client.get(f'/api/workers/{self.cashier.id}/').data
+        self.assertEqual(w['company_owes'], net)
         today_payload = self.client.get(f'/api/days/{self.d}/').data
-        self.assertIn(self.cook.id, [u['worker_id'] for u in today_payload['unpaid_salaries']])
+        self.assertIn(self.cashier.id, [u['worker_id'] for u in today_payload['unpaid_salaries']])
 
         # ...and it keeps showing next month, on the worker's own account page
         first, last = svc.month_bounds(ym)
         next_ym = svc.ym_of(last + timedelta(days=1))
-        acc = self.client.get(f'/api/workers/{self.cook.id}/account/?month={next_ym}').data
-        self.assertEqual(acc['owed_by_company'], cook_net)
+        acc = self.client.get(f'/api/workers/{self.cashier.id}/account/?month={next_ym}').data
+        self.assertEqual(acc['owed_by_company'], net)
         self.assertEqual([m['month'] for m in acc['unpaid_months']], [ym])
 
         # marking it paid clears it everywhere
-        line_id = next(l['line_id'] for l in self.client.get(f'/api/salary/{ym}/').data['lines'] if l['worker']['id'] == self.cook.id)
+        line_id = next(l['line_id'] for l in self.client.get(f'/api/salary/{ym}/').data['lines'] if l['worker']['id'] == self.cashier.id)
         self.assertEqual(self.client.post(f'/api/salary-lines/{line_id}/paid/', {'paid': True}, format='json').status_code, 200)
-        acc2 = self.client.get(f'/api/workers/{self.cook.id}/account/?month={next_ym}').data
+        acc2 = self.client.get(f'/api/workers/{self.cashier.id}/account/?month={next_ym}').data
         self.assertEqual(acc2['owed_by_company'], 0)
-        w2 = self.client.get(f'/api/workers/{self.cook.id}/').data
+        w2 = self.client.get(f'/api/workers/{self.cashier.id}/').data
         self.assertEqual(w2['company_owes'], 0)
 
     def test_manual_shortage_needs_reason(self):
@@ -247,12 +248,13 @@ class RulesTest(APITestCase):
         self.client.post('/api/expenses/', {'category': 'gesi', 'amount': 25000, 'reason': 'gas', 'paid_from': 'simu'}, format='json')
         self.client.post('/api/advances/', {'worker_id': self.cook.id, 'amount': 7000}, format='json')
         self.client.post(f'/api/workers/{self.cashier.id}/shortages/', {'amount': 2000, 'reason': 'Broken cups'}, format='json')
+        self.client.put(f'/api/days/{self.d}/payments/', [{'worker_id': self.cook.id, 'amount': 9000, 'paid_from': 'simu'}], format='json')
 
         pay = self.client.get(f'/api/days/{self.d}/pay/').data
         rows = {l['worker']['id']: l for l in pay['lines']}
         self.assertEqual((rows[self.cashier.id]['earned'], rows[self.cashier.id]['shortages']), (10000, 2000))  # 300,000 / 30
-        self.assertEqual((rows[self.cook.id]['earned'], rows[self.cook.id]['advances']), (10000, 7000))  # late still earns the day
-        self.assertEqual((pay['total_earned'], pay['total_advances'], pay['total_shortages']), (20000, 7000, 2000))
+        self.assertEqual((rows[self.cook.id]['earned'], rows[self.cook.id]['advances']), (9000, 7000))  # what he was handed, not his rate
+        self.assertEqual((pay['total_earned'], pay['total_advances'], pay['total_shortages']), (19000, 7000, 2000))
 
         # an absent monthly worker earns nothing that day
         self.client.put(f'/api/days/{self.d}/attendance/', {str(self.cashier.id): 'absent'}, format='json')
@@ -278,6 +280,87 @@ class RulesTest(APITestCase):
         self.assertEqual((r['day_sales'], r['day_expenses']), (110000, 5000))
         self.assertEqual([(x['date'], x['sales_to_date'], x['expenses_to_date']) for x in r['running']], [(d1, 150000, 20000), (d2, 260000, 25000)])
 
+    def test_daily_payments(self):
+        ym = svc.ym_of(self.today)
+        self.sales()  # banda: 100,000 cash
+        day = self.client.get(f'/api/days/{self.d}/').data
+        self.assertEqual([x['worker_id'] for x in day['payments']], [self.cook.id])  # only daily-paid workers are listed
+
+        # a payment from the banda till comes out of the banda's expected cash
+        r = self.client.put(f'/api/days/{self.d}/payments/', [{'worker_id': self.cook.id, 'amount': 8000, 'paid_from': 'droo', 'section': 'banda'}], format='json')
+        self.assertEqual(r.status_code, 200, r.data)
+        b = r.data['sections']['banda']
+        self.assertEqual((r.data['payments_total'], b['wages'], b['expected']), (8000, 8000, 100000 - 8000))
+        bad = self.client.put(f'/api/days/{self.d}/payments/', [{'worker_id': self.cook.id, 'amount': 8000, 'paid_from': 'droo'}], format='json')
+        self.assertEqual(bad.status_code, 400)  # a till payment must say which till
+
+        # not on the monthly salary list; shown with the daily-paid workers instead
+        sal = self.client.get(f'/api/salary/{ym}/').data
+        self.assertNotIn(self.cook.id, [l['worker']['id'] for l in sal['lines']])
+        self.assertEqual([(x['worker']['id'], x['days'], x['total']) for x in sal['daily']], [(self.cook.id, 1, 8000)])
+        acct = self.client.get(f'/api/workers/{self.cook.id}/account/').data
+        self.assertEqual((acct['pay_type'], acct['days_paid'], acct['base'], acct['net']), ('daily', 1, 8000, 0))
+
+        # the reports subtract it on the day it was paid
+        rep = self.client.get(f'/api/reports/day/{self.d}/').data
+        self.assertEqual((rep['payments_total'], rep['day_payments']), (8000, 8000))
+        self.assertEqual(rep['profit'], rep['total'] - rep['expenses_total'] - 8000 - rep['salaries_total'])
+        month = self.client.get(f'/api/reports/month/{ym}/').data
+        self.assertEqual(month['payments_total'], 8000)
+        self.assertEqual(month['profit'], month['total'] - month['expenses_total'] - 8000 - month['salaries_total'])
+
+        # an empty amount removes it; once the day is closed it can't change
+        r = self.client.put(f'/api/days/{self.d}/payments/', [{'worker_id': self.cook.id, 'amount': None}], format='json')
+        self.assertEqual(r.data['payments_total'], 0)
+        self.client.put(f'/api/days/{self.d}/cash-count/', {'banda': 50000 + 100000, 'mgahawa': 80000 + 200000}, format='json')
+        self.mark_all()
+        self.assertEqual(self.client.post(f'/api/days/{self.d}/close/').status_code, 200)
+        r = self.client.put(f'/api/days/{self.d}/payments/', [{'worker_id': self.cook.id, 'amount': 5000, 'paid_from': 'simu'}], format='json')
+        self.assertEqual((r.status_code, r.data['code']), (409, 'day_closed'))
+
+    def test_switch_pay_type(self):
+        ym = svc.ym_of(self.today)
+        r = self.client.patch(f'/api/workers/{self.cashier.id}/', {'pay_type': 'daily', 'rate': 12000}, format='json')
+        self.assertEqual((r.status_code, r.data['pay_type'], r.data['rate']), (200, 'daily', 12000))
+        sal = self.client.get(f'/api/salary/{ym}/').data
+        self.assertNotIn(self.cashier.id, [l['worker']['id'] for l in sal['lines']])
+        self.assertIn(self.cashier.id, [x['worker']['id'] for x in sal['daily']])
+        self.assertIn(self.cashier.id, [x['worker_id'] for x in self.client.get(f'/api/days/{self.d}/').data['payments']])
+        log = AuditLog.objects.get(action='worker.pay')
+        self.assertEqual((log.detail['pay_type'], log.detail['was']), ('daily', {'pay_type': 'monthly', 'rate': 300000}))
+        self.assertEqual(self.client.patch(f'/api/workers/{self.cashier.id}/', {'pay_type': 'weekly'}, format='json').status_code, 400)
+        self.assertEqual(self.client.patch(f'/api/workers/{self.cashier.id}/', {'rate': 0}, format='json').status_code, 400)
+
+    def test_reports_show_daily_pay(self):
+        from io import BytesIO
+        from unittest import mock
+
+        from openpyxl import load_workbook
+        from reportlab import rl_config
+        ym = svc.ym_of(self.today)
+        self.sales()
+        self.client.put(f'/api/days/{self.d}/payments/', [{'worker_id': self.cook.id, 'amount': 8000, 'paid_from': 'droo', 'section': 'banda'}], format='json')
+        rep = self.client.get(f'/api/reports/day/{self.d}/').data
+        money_left = f'{rep["profit"]:,}' if rep['profit'] >= 0 else f'-{-rep["profit"]:,}'
+        with mock.patch.object(rl_config, 'pageCompression', 0):  # readable PDF text
+            day_pdf = self.client.get(f'/api/reports/day/{self.d}/?file=pdf&lang=en').content
+            month_pdf = self.client.get(f'/api/reports/month/{ym}/?file=pdf&lang=en').content
+        for pdf in (day_pdf, month_pdf):
+            self.assertIn(b'Daily pay', pdf)
+            self.assertIn(b'8,000', pdf)
+            self.assertIn(rb'Money left \(profit\)', pdf)  # parentheses are escaped inside PDF strings
+        self.assertIn(money_left.encode(), day_pdf)
+        self.assertIn(b'Juma', day_pdf)  # who was paid
+
+        book = load_workbook(BytesIO(self.client.get(f'/api/reports/day/{self.d}/?file=xlsx&lang=en').content))
+        cells = [c for ws in book.worksheets for row in ws.iter_rows(values_only=True) for c in row]
+        self.assertIn('Total daily pay', cells)
+        self.assertIn(8000, cells)
+        self.assertIn(rep['profit'], cells)
+        book = load_workbook(BytesIO(self.client.get(f'/api/reports/month/{ym}/?file=xlsx&lang=en').content))
+        self.assertIn('Daily pay', book.sheetnames)
+        self.assertEqual([r[1:] for r in book['Daily pay'].iter_rows(min_row=2, max_row=2, values_only=True)], [('Juma', 'Till - Stall', 8000)])
+
     def test_salary_formulas(self):
         ym = svc.ym_of(self.today)
         first, _ = svc.month_bounds(ym)
@@ -294,9 +377,10 @@ class RulesTest(APITestCase):
             n = len(marked)
             Attendance.objects.update_or_create(worker=self.cook, date=d, defaults={'status': 'late' if n < 2 else 'present'})
             Attendance.objects.update_or_create(worker=self.cashier, date=d, defaults={'status': 'absent' if n < 2 else 'present'})
+            DailyPayment.objects.create(worker=self.cook, date=d, amount=8000 if n == 0 else 10000, paid_from='simu')
             marked.append(d)
         f = svc.salary_figures(self.cook, ym, Settings.load().rules)
-        self.assertEqual(f['base'], 10000 * len(marked))
+        self.assertEqual((f['base'], f['net']), (10000 * len(marked) - (2000 if marked else 0), 0))
         g = svc.salary_figures(self.cashier, ym, Settings.load().rules)
         absent = min(2, len(marked))
         self.assertEqual(g['base'], 300000 - round(300000 / 30 * absent))

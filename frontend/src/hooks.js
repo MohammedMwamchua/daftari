@@ -46,6 +46,7 @@ export function useActions() {
     saveSales: (d, body) => dayRes(api.put(`/days/${d}/sales/`, body)),
     saveCount: (d, body) => dayRes(api.put(`/days/${d}/cash-count/`, body)),
     saveAttendance: (d, body) => dayRes(api.put(`/days/${d}/attendance/`, body)),
+    savePayments: (d, body) => dayRes(api.put(`/days/${d}/payments/`, body)),
     visit: async (d, step) => {
       const r = await api.post(`/days/${d}/visit/`, { step });
       qc.setQueryData(['day', d], (old) => (old ? { ...old, visited: r.visited } : old));

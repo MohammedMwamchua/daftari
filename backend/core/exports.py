@@ -14,6 +14,7 @@ from reportlab.lib.styles import ParagraphStyle
 EMERALD, BRASS, INK, MUTED, PAPER = '#0b5d49', '#c8962e', '#16231f', '#6b7a74', '#f4f7f4'
 DAYS = {'sw': ['Jumapili', 'Jumatatu', 'Jumanne', 'Jumatano', 'Alhamisi', 'Ijumaa', 'Jumamosi'],
         'en': ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']}
+DAYS_SHORT = {'sw': ['Jpl', 'Jtt', 'Jnn', 'Jtn', 'Alh', 'Ijm', 'Jms'], 'en': ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']}
 MONTHS = {'sw': ['Januari', 'Februari', 'Machi', 'Aprili', 'Mei', 'Juni', 'Julai', 'Agosti', 'Septemba', 'Oktoba', 'Novemba', 'Desemba'],
           'en': ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']}
 
@@ -101,24 +102,59 @@ def _build(title, story):
     return buf.getvalue()
 
 
+def _h2(text):
+    return Paragraph(text, ParagraphStyle('h2', fontName='Helvetica-Bold', fontSize=11.5, textColor=colors.HexColor(EMERALD),
+                                          leading=15, spaceAfter=4))
+
+
+def _paid_from(x, lang):
+    t = T(lang)
+    label = {'droo': t('Droo', 'Till'), 'simu': t('Pesa za simu', 'Mobile money'), 'other': t('Nyingine', 'Other')}[x['paid_from']]
+    if x.get('section'):
+        label += ' - ' + {'banda': t('Banda', 'Stall'), 'mgahawa': t('Mgahawa', 'Restaurant')}[x['section']]
+    return label
+
+
+def _profit_rows(lang, sales, spent, paid, salaries, profit, span=''):
+    """The profit sum, line by line, exactly as the Ripoti screen works it out."""
+    t = T(lang)
+    span = f' ({span})' if span else ''
+    return [[t('Hesabu ya faida', 'Profit'), 'TSh'],
+            [t('Mauzo', 'Sales') + span, n(sales)],
+            [t('- Matumizi', '- Expenses') + span, n(spent)],
+            [t('- Malipo ya siku', '- Daily pay') + span, n(paid)],
+            [t('- Mishahara ya mwezi mzima', "- The whole month's salaries"), n(salaries)],
+            [t('Pesa iliyobaki (faida)', 'Money left (profit)'), signed(profit) if profit < 0 else n(profit)]]
+
+
 def month_pdf(r, lang):
     t = T(lang)
     title = t('Ripoti ya mauzo ya mwezi', 'Monthly sales report')
     best = r['best']
     story = [_header(title, month_title(r['month'], lang)), Spacer(1, 6 * mm), _kpis([
         (t('Jumla ya mauzo', 'Total sales'), f'TSh {n(r["total"])}'), (t('Pesa taslimu', 'Cash'), f'TSh {n(r["cash"])}'),
-        (t('Pesa za simu', 'Mobile money'), f'TSh {n(r["mobile"])}'), (t('Wastani/siku', 'Avg / day'), f'TSh {n(r["average"])}'),
-        (t('Siku bora', 'Best day'), f'{short(best["date"], lang)}: {n(best["total"])}' if best else '-')]),
+        (t('Pesa za simu', 'Mobile money'), f'TSh {n(r["mobile"])}'), (t('Wastani/siku', 'Avg / day'), f'TSh {n(r["average"])}')]),
         Spacer(1, 3 * mm), _kpis([
             (t('Banda', 'Stall'), f'TSh {n(r["banda"])}'), (t('Mgahawa', 'Restaurant'), f'TSh {n(r["mgahawa"])}'),
-            (t('Matumizi', 'Expenses'), f'TSh {n(r["expenses_total"])}'), (t('Mishahara', 'Salaries'), f'TSh {n(r["salaries_total"])}'),
-            (t('Faida', 'Profit'), f'TSh {n(r["profit"])}')]), Spacer(1, 6 * mm)]
-    rows = [[t('Tarehe', 'Date'), t('Siku', 'Day'), t('Banda', 'Stall'), t('Mgahawa', 'Restaurant'), t('Jumla', 'Total'), t('Tofauti', 'Diff.')]]
+            (t('Siku bora', 'Best day'), f'{short(best["date"], lang)}: {n(best["total"])}' if best else '-'),
+            (t('Pesa iliyobaki (faida)', 'Money left (profit)'), f'TSh {signed(r["profit"]) if r["profit"] < 0 else n(r["profit"])}')]), Spacer(1, 6 * mm),
+        _table(_profit_rows(lang, r['total'], r['expenses_total'], r['payments_total'], r['salaries_total'], r['profit']),
+               [120 * mm, 58 * mm], 1, True), Spacer(1, 6 * mm),
+        _h2(t('Kila siku', 'Every day'))]
+    rows = [[t('Tarehe', 'Date'), t('Siku', 'Day'), t('Banda', 'Stall'), t('Mgahawa', 'Restaurant'), t('Mauzo', 'Sales'),
+             t('Matumizi', 'Expenses'), t('Malipo', 'Daily pay'), t('Tofauti', 'Diff.')]]
     for d in sorted(r['days'], key=lambda x: x['date']):
-        rows.append([short(d['date'], lang), DAYS[lang][d['dow']][:3], n(d['banda']['cash'] + d['banda']['mobile']),
-                     n(d['mgahawa']['cash'] + d['mgahawa']['mobile']), n(d['total']), signed(d['diff'])])
-    rows.append([t('JUMLA', 'TOTAL'), '', n(r['banda']), n(r['mgahawa']), n(r['total']), signed(r['diff_total'])])
-    story.append(_table(rows, [24 * mm, 20 * mm, 32 * mm, 32 * mm, 32 * mm, 26 * mm], 2, True))
+        rows.append([short(d['date'], lang), DAYS_SHORT[lang][d['dow']], n(d['banda']['cash'] + d['banda']['mobile']),
+                     n(d['mgahawa']['cash'] + d['mgahawa']['mobile']), n(d['total']), n(d['expenses']), n(d['payments']), signed(d['diff'])])
+    rows.append([t('JUMLA', 'TOTAL'), '', n(r['banda']), n(r['mgahawa']), n(r['total']), n(r['expenses_total']),
+                 n(r['payments_total']), signed(r['diff_total'])])
+    story.append(_table(rows, [20 * mm, 14 * mm, 24 * mm, 24 * mm, 26 * mm, 24 * mm, 23 * mm, 23 * mm], 2, True))
+    paid = [x for x in r['daily_paid'] if x['days']]
+    if paid:
+        rows = [[t('Malipo ya kila siku', 'Daily pay'), t('Siku', 'Days'), 'TSh']]
+        rows += [[x['worker']['name'], str(x['days']), n(x['total'])] for x in paid]
+        rows.append([t('JUMLA', 'TOTAL'), str(sum(x['days'] for x in paid)), n(r['payments_total'])])
+        story += [Spacer(1, 6 * mm), _table(rows, [110 * mm, 30 * mm, 38 * mm], 1, True)]
     if r['expenses_by_category']:
         story += [Spacer(1, 6 * mm), _table(
             [[t('Matumizi kwa kundi', 'Expenses by category'), 'TSh']] + [
@@ -127,25 +163,46 @@ def month_pdf(r, lang):
     return _build(title, story)
 
 
-def day_pdf(p, lang):
+def day_pdf(p, rep, lang):
     t = T(lang)
     d = date.fromisoformat(p['date'])
     title = t('Ripoti ya siku', 'Daily report')
     sub = f'{DAYS[lang][p["dow"]]}, {d.day} {MONTHS[lang][d.month - 1]} {d.year}'
     S = p['sections']
+    left = p['sales_total'] - p['expenses_total'] - p['payments_total']  # what the day itself left, before monthly salaries
     rows = [[t('Sehemu', 'Section'), t('Pesa taslimu', 'Cash'), t('Pesa za simu', 'Mobile money'), t('Jumla', 'Total')]]
     for key, name in (('banda', t('Banda', 'Stall')), ('mgahawa', t('Mgahawa', 'Restaurant'))):
         rows.append([name, n(S[key]['cash']), n(S[key]['mobile']), n(S[key]['cash'] + S[key]['mobile'])])
     rows.append([t('JUMLA', 'TOTAL'), n(p['cash_total']), n(p['mobile_total']), n(p['sales_total'])])
     story = [_header(title, sub), Spacer(1, 6 * mm), _kpis([
         (t('Mauzo', 'Sales'), f'TSh {n(p["sales_total"])}'), (t('Matumizi', 'Expenses'), f'TSh {n(p["expenses_total"])}'),
+        (t('Malipo ya siku', 'Daily pay'), f'TSh {n(p["payments_total"])}'),
+        (t('Baki ya siku', 'Left this day'), f'TSh {signed(left) if left < 0 else n(left)}'),
         (t('Tofauti ya pesa', 'Cash difference'), f'TSh {signed(p["difference_total"])}')]), Spacer(1, 6 * mm),
         _table(rows, [58 * mm, 40 * mm, 40 * mm, 40 * mm], 1, True), Spacer(1, 6 * mm)]
     exp = [[t('Matumizi', 'Expense'), t('Maelezo', 'Reason'), 'TSh']] + [
         [e['category_sw' if lang == 'sw' else 'category_en'], e['reason'], n(e['amount'])] for e in p['expenses']]
     if len(exp) == 1:
         exp.append([t('Hakuna matumizi', 'No expenses'), '', '0'])
-    story.append(_table(exp, [45 * mm, 100 * mm, 33 * mm], 2))
+    story += [_table(exp, [45 * mm, 100 * mm, 33 * mm], 2), Spacer(1, 6 * mm)]
+    paid = [x for x in p['payments'] if x['amount']]
+    pay = [[t('Malipo ya siku', 'Daily pay'), t('Imetoka', 'Paid from'), 'TSh']]
+    pay += [[x['name'], _paid_from(x, lang), n(x['amount'])] for x in paid]
+    pay.append([t('JUMLA', 'TOTAL'), '', n(p['payments_total'])] if paid else [t('Hakuna malipo ya siku', 'No daily pay'), '', '0'])
+    story += [_table(pay, [75 * mm, 70 * mm, 33 * mm], 2, bool(paid)), Spacer(1, 8 * mm)]
+
+    # the Ripoti figures: sales, expenses and daily pay added up from the 1st, minus the month's salaries
+    span = f'{short(rep["from"], lang)} - {short(rep["date"], lang)}'
+    story += [_h2(t(f'Pesa iliyobaki (faida) hadi siku hii ({span})', f'Money left (profit) up to this day ({span})')),
+              _table(_profit_rows(lang, rep['total'], rep['expenses_total'], rep['payments_total'], rep['salaries_total'], rep['profit'], span),
+                     [120 * mm, 58 * mm], 1, True)]
+    if rep['running']:
+        run = [[t('Tarehe', 'Date'), t('Mauzo', 'Sales'), t('Matumizi', 'Expenses'), t('Malipo', 'Daily pay'),
+                t('Mauzo jumla', 'Sales so far'), t('Matumizi jumla', 'Expenses so far'), t('Malipo jumla', 'Pay so far')]]
+        run += [[short(x['date'], lang), n(x['sales']), n(x['expenses']), n(x['payments']),
+                 n(x['sales_to_date']), n(x['expenses_to_date']), n(x['payments_to_date'])] for x in rep['running']]
+        story += [Spacer(1, 6 * mm), _h2(t('Jinsi yalivyoongezeka', 'How it added up')),
+                  _table(run, [20 * mm, 25 * mm, 25 * mm, 24 * mm, 29 * mm, 29 * mm, 26 * mm], 1)]
     return _build(title, story)
 
 
@@ -178,22 +235,38 @@ def _xlsx(wb):
     return buf.getvalue()
 
 
+def _profit_sheet(wb, lang, sales, spent, paid, salaries, profit, span=''):
+    t = T(lang)
+    span = f' ({span})' if span else ''
+    ws = wb.create_sheet(t('Faida', 'Profit'))
+    _sheet(ws, [t('Hesabu ya faida', 'Profit'), 'TSh'], [
+        [t('Mauzo', 'Sales') + span, sales], [t('Matumizi', 'Expenses') + span, -spent],
+        [t('Malipo ya siku', 'Daily pay') + span, -paid], [t('Mishahara ya mwezi mzima', "The whole month's salaries"), -salaries],
+        [t('Pesa iliyobaki (faida)', 'Money left (profit)'), profit]], [44, 18], total=True)
+
+
 def month_xlsx(r, lang):
     t = T(lang)
     wb = Workbook()
     ws = wb.active
     ws.title = month_title(r['month'], lang)[:31]
     rows = [[d['date'], DAYS[lang][d['dow']], d['banda']['cash'], d['banda']['mobile'], d['mgahawa']['cash'],
-             d['mgahawa']['mobile'], d['total'], d['diff']] for d in sorted(r['days'], key=lambda x: x['date'])]
-    rows.append([t('JUMLA', 'TOTAL'), '', *[sum(x[i] for x in rows) for i in range(2, 8)]])
+             d['mgahawa']['mobile'], d['total'], d['expenses'], d['payments'], d['diff']] for d in sorted(r['days'], key=lambda x: x['date'])]
+    rows.append([t('JUMLA', 'TOTAL'), '', *[sum(x[i] for x in rows) for i in range(2, 10)]])
     _sheet(ws, [t('Tarehe', 'Date'), t('Siku', 'Day'), t('Banda: pesa taslimu', 'Stall: cash'),
                 t('Banda: pesa za simu', 'Stall: mobile'), t('Mgahawa: pesa taslimu', 'Restaurant: cash'),
                 t('Mgahawa: pesa za simu', 'Restaurant: mobile'), t('Jumla ya mauzo', 'Total sales'),
-                t('Tofauti ya pesa', 'Cash difference')], rows, [14, 14, 18, 18, 20, 20, 18, 16], total=True)
+                t('Matumizi', 'Expenses'), t('Malipo ya siku', 'Daily pay'),
+                t('Tofauti ya pesa', 'Cash difference')], rows, [14, 14, 18, 18, 20, 20, 18, 16, 16, 16], total=True)
+    _profit_sheet(wb, lang, r['total'], r['expenses_total'], r['payments_total'], r['salaries_total'], r['profit'])
+    pay = wb.create_sheet(t('Malipo ya siku', 'Daily pay'))
+    prow = [[x['date'], x['worker_name'], _paid_from(x, lang), x['amount']] for x in sorted(r['payment_rows'], key=lambda x: (x['date'], x['worker_name']))]
+    prow.append([t('JUMLA', 'TOTAL'), '', '', r['payments_total']])
+    _sheet(pay, [t('Tarehe', 'Date'), t('Mfanyakazi', 'Worker'), t('Imetoka', 'Paid from'), 'TSh'], prow, [14, 28, 26, 16], total=True)
     return _xlsx(wb)
 
 
-def day_xlsx(p, lang):
+def day_xlsx(p, rep, lang):
     t = T(lang)
     wb = Workbook()
     ws = wb.active
@@ -205,7 +278,17 @@ def day_xlsx(p, lang):
     rows.append([t('Jumla ya mauzo', 'Total sales'), '', p['sales_total']])
     rows += [[t('Matumizi', 'Expense'), f'{e["category_sw" if lang == "sw" else "category_en"]}: {e["reason"]}', e['amount']]
              for e in p['expenses']]
-    rows += [[t('Jumla ya matumizi', 'Total expenses'), '', p['expenses_total']],
-             [t('Tofauti ya pesa', 'Cash difference'), '', p['difference_total']]]
+    rows.append([t('Jumla ya matumizi', 'Total expenses'), '', p['expenses_total']])
+    rows += [[t('Malipo ya siku', 'Daily pay'), f'{x["name"]} ({_paid_from(x, lang)})', x['amount']] for x in p['payments'] if x['amount']]
+    rows += [[t('Jumla ya malipo ya siku', 'Total daily pay'), '', p['payments_total']],
+             [t('Tofauti ya pesa', 'Cash difference'), '', p['difference_total']],
+             [t('Baki ya siku (mauzo - matumizi - malipo)', 'Left this day (sales - expenses - daily pay)'), '', p['sales_total'] - p['expenses_total'] - p['payments_total']]]
     _sheet(ws, [t('Sehemu', 'Section'), t('Maelezo', 'Detail'), 'TSh'], rows, [26, 44, 16], total=True)
+    span = f'{short(rep["from"], lang)} - {short(rep["date"], lang)}'
+    _profit_sheet(wb, lang, rep['total'], rep['expenses_total'], rep['payments_total'], rep['salaries_total'], rep['profit'], span)
+    run = wb.create_sheet(t('Kila siku', 'Every day'))
+    _sheet(run, [t('Tarehe', 'Date'), t('Mauzo', 'Sales'), t('Matumizi', 'Expenses'), t('Malipo ya siku', 'Daily pay'),
+                 t('Mauzo jumla', 'Sales so far'), t('Matumizi jumla', 'Expenses so far'), t('Malipo jumla', 'Pay so far')],
+           [[x['date'], x['sales'], x['expenses'], x['payments'], x['sales_to_date'], x['expenses_to_date'], x['payments_to_date']]
+            for x in rep['running']], [14, 16, 16, 16, 18, 18, 16])
     return _xlsx(wb)

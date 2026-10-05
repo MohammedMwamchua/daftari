@@ -67,7 +67,8 @@ export default function Leo() {
                 <Leader idx={0} label={t('Banda', 'Stall')} value={tsh(d.sales.banda)} />
                 <Leader idx={1} label={t('Mgahawa', 'Restaurant')} value={tsh(d.sales.mgahawa)} />
                 <Leader idx={2} label={t('Matumizi ya leo', "Today's expenses")} value={`− ${tsh(d.expenses_total)}`} />
-                <Leader idx={3} strong tone={tone} label={t('Tofauti ya pesa', 'Cash difference')}
+                {d.payments_total ? <Leader idx={3} label={t('Malipo ya leo', "Today's daily pay")} value={`− ${tsh(d.payments_total)}`} /> : null}
+                <Leader idx={4} strong tone={tone} label={t('Tofauti ya pesa', 'Cash difference')}
                   sub={!d.has_count ? t('Bado haijahesabiwa', 'Not counted yet') : diff === 0 ? t('Pesa zote zinalingana', 'Everything adds up') : diff < 0 ? t('Upungufu', 'Shortage') : t('Ziada', 'Surplus')}
                   value={!d.has_count ? '—' : diff === 0 ? tsh(0) : `${diff < 0 ? '−' : '+'}${num(Math.abs(diff))}`} />
               </div>

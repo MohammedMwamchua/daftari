@@ -36,29 +36,31 @@ The app is for the manager only: there is one login, and workers do not sign in.
 ### Leo (Today)
 The home screen shows:
 - **Today's sales**, split between banda and mgahawa, and between cash and mobile money.
-- **Today's expenses** and the **cash difference** once the till has been counted.
+- **Today's expenses**, **today's daily pay**, and the **cash difference** once the till has been counted.
 - **Progress through the close-day steps**, with a button to continue.
 - **The last 7 days** of sales.
 - **Today's workers** and whether each one is present.
 - **"Waiting for you"**: shortages written today, and salaries from earlier months that are still unpaid.
 
 ### Funga siku (Close the day)
-A five-step wizard, done once per day:
+A six-step wizard, done once per day:
 
 1. **Mauzo (Sales):** cash and mobile money totals for each section, plus the cashier of the day.
 2. **Matumizi (Expenses):** what was spent, from which source (till, mobile money or other), and for which section.
-3. **Hesabu ya pesa (Cash count):** the manager counts each till. The app shows what *should* be there and the difference.
-4. **Mahudhurio (Attendance):** each worker is marked present, late or absent. Days off and leave are filled in automatically.
-5. **Funga siku (Close):** a summary. Closing locks the day, and any shortage goes straight onto the cashier's account.
+3. **Malipo (Daily pay):** the amount handed to each daily-paid worker that day, typed in by hand, and where it was paid from. Leaving it empty means the worker was not paid that day.
+4. **Hesabu ya pesa (Cash count):** the manager counts each till. The app shows what *should* be there and the difference.
+5. **Mahudhurio (Attendance):** each worker is marked present, late or absent. Days off and leave are filled in automatically.
+6. **Funga siku (Close):** a summary. Closing locks the day, and any shortage goes straight onto the cashier's account.
 
 A **"Tarehe ya kujaza" (day to fill)** field lets the manager fill and close earlier days that were missed. After an earlier day is closed, the wizard moves on to the next day.
 
 ### Wafanyakazi (Workers)
 Each worker has:
-- **Details:** role (cashier, cook, waiter, other), phone number, and pay, either monthly or daily.
+- **Details:** role (cashier, cook, waiter, other) and phone number.
+- **Pay:** a monthly salary on the month-end salary list, or daily pay entered in the close-day Malipo step. The *Malipo* tab switches between the two.
 - **Dates:** a weekly day off and a start date.
 - **Leave:** *ruhusa* (permission) and *likizo* (holiday) periods. These show on an attendance calendar.
-- **An account statement:** base pay, minus advances, minus shortages, giving the net pay.
+- **An account statement:** for monthly workers, base pay minus advances and shortages, giving the net pay; for daily-paid workers, what they were paid each day.
 
 From the worker's page the manager can write a manual shortage (a reason is required), give an advance, or waive a shortage. A worker can be removed and later restored; their history stays.
 
@@ -69,10 +71,10 @@ Pick a **month**, or pick a **single day** (*Siku moja*), and all four tabs foll
 |---|---|---|
 | **Mauzo** (Sales) | Totals, cash/mobile split, sales-by-day chart, and a table of every day with its sales, expenses and cash difference | That day's sales, expenses, cash difference, shortages, advances and attendance, with the month's totals below |
 | **Matumizi** (Expenses) | Month total, totals by category, latest expenses | That day's expenses, plus a form to add one if the day is still open |
-| **Mishahara** (Salaries) | The salary list: approve it, mark each line paid, and set how special days count | What each worker earned that day |
-| **Ripoti** (Reports) | Profit for the month | Profit up to that day (see below) |
+| **Mishahara** (Salaries) | The salary list of monthly workers: approve it, mark each line paid, and set how special days count. Daily-paid workers are listed separately with what they were paid. | What each worker earned that day |
+| **Ripoti** (Reports) | Money left (profit) for the month | Money left (profit) up to that day (see below) |
 
-The month and one-day reports can be downloaded as **PDF** or **Excel**, in either language.
+The month and one-day reports can be downloaded as **PDF** or **Excel**, in either language. They include the daily pay and end with the money left (*pesa iliyobaki*).
 
 ### Mipangilio (Settings)
 - the fixed **change float** kept in each till
@@ -102,7 +104,7 @@ All money is calculated on the server in [`backend/core/services.py`](backend/co
 **Cash difference** is worked out for each section when the till is counted:
 
 ```
-expected cash   = cash sales − expenses paid from that till
+expected cash   = cash sales − expenses paid from that till − daily pay paid from that till
 cash difference = cash counted − change float − expected cash
 ```
 
@@ -123,15 +125,9 @@ Unpaid days are:
 
 Days that have not happened yet are never cut.
 
-**Daily pay:**
+**Daily pay:** daily-paid workers are not on the monthly salary list. They are paid by hand each day, and the manager types the amount in the Malipo step. That amount *is* their pay; nothing is deducted from a salary. Their daily rate is only shown as a suggestion.
 
-```
-base pay = daily rate × days worked
-```
-
-Days worked are those marked present or late. Days off, permission and holiday are added if the rules say they are paid.
-
-**Net pay:**
+**Net pay** (monthly workers):
 
 ```
 net pay = base pay − advances − shortages that were not waived   (never below 0)
@@ -140,7 +136,7 @@ net pay = base pay − advances − shortages that were not waived   (never belo
 **Profit for a month:**
 
 ```
-profit = sales − expenses − (net salaries + advances)
+profit = sales − expenses − daily pay − (net salaries + advances)
 ```
 
 During the month, profit looks low, because monthly salaries count in full from the first day.
@@ -148,12 +144,13 @@ During the month, profit looks low, because monthly salaries count in full from 
 **Profit up to a chosen day** (the Ripoti tab with one day selected):
 
 ```
-profit = sales from the 1st to that day − expenses from the 1st to that day − the whole month's salaries
+profit = sales from the 1st to that day − expenses from the 1st to that day
+         − daily pay from the 1st to that day − the whole month's salaries
 ```
 
-A table shows how sales and expenses add up day by day. On the last day of the month this equals the month's profit.
+A table shows how sales, expenses and daily pay add up day by day. On the last day of the month this equals the month's profit.
 
-**One day's pay** (the Mishahara tab with one day selected) is the monthly rate ÷ 30 for monthly workers, unless that day is cut. For daily workers it is their rate if they worked that day.
+**One day's pay** (the Mishahara tab with one day selected) is the monthly rate ÷ 30 for monthly workers, unless that day is cut. For daily-paid workers it is what they were paid that day.
 
 ---
 
@@ -265,8 +262,8 @@ The time zone is `Africa/Dar_es_Salaam`. Login tokens (JWT) last 2 hours and ref
 backend/                  Django 5 + Django REST Framework
   config/                 settings, URLs, WSGI
   core/
-    models.py             Worker, Day, DaySection, Attendance, Expense, Advance, Shortage,
-                          LeaveRecord, SalaryRun, SalaryLine, Settings, AuditLog
+    models.py             Worker, Day, DaySection, Attendance, Expense, DailyPayment, Advance,
+                          Shortage, LeaveRecord, SalaryRun, SalaryLine, Settings, AuditLog
     services.py           every business rule and money calculation
     views.py, urls.py     thin REST endpoints
     exports.py            PDF (reportlab) and Excel (openpyxl) reports
@@ -296,7 +293,7 @@ Every endpoint is under `/api/` and needs a `Bearer` token, except login.
 | Auth | `POST auth/login/`, `POST auth/refresh/`, `GET auth/me/`, `POST auth/change-password/` |
 | Settings | `GET/PATCH meta/`, `categories/` |
 | Workers | `workers/`, `workers/<id>/`, `…/remove/`, `…/restore/`, `…/leaves/`, `…/account/?month=`, `…/shortages/` |
-| A day | `GET days/<date>/`, `PUT …/sales/`, `PUT …/cash-count/`, `PUT …/attendance/`, `POST …/close/`, `GET …/pay/` |
+| A day | `GET days/<date>/`, `PUT …/sales/`, `PUT …/payments/`, `PUT …/cash-count/`, `PUT …/attendance/`, `POST …/close/`, `GET …/pay/` |
 | Money | `expenses/?month=`, `advances/`, `shortages/<id>/` |
 | Salaries | `GET salary/<yyyy-mm>/`, `POST …/approve/`, `POST salary-lines/<id>/paid/` |
 | Reports | `GET reports/month/<yyyy-mm>/` and `GET reports/day/<date>/`, with `?file=pdf\|xlsx&lang=sw\|en` to download |

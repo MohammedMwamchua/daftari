@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from .errors import Conflict
 from .models import (
-    SECTIONS, Advance, Attendance, AuditLog, Day, DaySection, Expense, LeaveRecord, SalaryLine,
+    SECTIONS, Advance, Attendance, AuditLog, DailyPayment, Day, DaySection, Expense, LeaveRecord, SalaryLine,
     SalaryRun, Settings, Shortage, Worker,
 )
 
@@ -142,23 +142,40 @@ def month_employed_days(worker, first, last):
 def salary_figures(worker, ym, rules, upto=None):
     stats = month_stats(worker, ym, upto)
     first, last = month_bounds(ym)
-    if worker.pay_type == 'monthly':
-        days_in_month = (last - first).days + 1
-        not_employed = days_in_month - month_employed_days(worker, first, last)
-        cut = not_employed + stats['absent'] + sum(stats[k] for k in SPECIAL if rules[k]['cut'])
-        base = max(0, worker.rate - round(worker.rate / 30 * cut))
-    else:
-        paid_days = stats['present'] + stats['late'] + sum(stats[k] for k in SPECIAL if rules[k]['pay'])
-        base = worker.rate * paid_days
     adv = Advance.objects.filter(worker=worker, date__range=(first, last)).aggregate(s=Sum('amount'))['s'] or 0
     short = (Shortage.objects.filter(worker=worker, date__range=(first, last), status='applied')
              .aggregate(s=Sum('amount'))['s'] or 0)
+    if worker.pay_type == 'daily':
+        # paid by hand each day in the close-day "Malipo" step, so nothing is left to pay at the end of the month
+        paid = DailyPayment.objects.filter(worker=worker, date__range=(first, last)).aggregate(s=Sum('amount'))['s'] or 0
+        return {'stats': stats, 'base': paid, 'advances': adv, 'shortages': short, 'net': 0, 'paid_daily': True}
+    days_in_month = (last - first).days + 1
+    not_employed = days_in_month - month_employed_days(worker, first, last)
+    cut = not_employed + stats['absent'] + sum(stats[k] for k in SPECIAL if rules[k]['cut'])
+    base = max(0, worker.rate - round(worker.rate / 30 * cut))
     return {'stats': stats, 'base': base, 'advances': adv, 'shortages': short, 'net': max(0, base - adv - short)}
 
 
-def salary_workers(ym):
+def _on_books(ym):
     first, last = month_bounds(ym)
-    return list(Worker.objects.filter(joined_on__lte=last).exclude(removed_on__lt=first).order_by('name'))
+    return Worker.objects.filter(joined_on__lte=last).exclude(removed_on__lt=first).order_by('name')
+
+
+def salary_workers(ym):
+    """Workers on the monthly salary list. Daily-paid workers are paid each day instead."""
+    return list(_on_books(ym).filter(pay_type='monthly'))
+
+
+def daily_paid(ym):
+    """Each daily-paid worker's payments in a month: how many days they were paid and how much."""
+    first, last = month_bounds(ym)
+    rows = {w.id: {'worker': worker_brief(w), 'rate': w.rate, 'days': 0, 'total': 0}
+            for w in _on_books(ym).filter(pay_type='daily')}
+    for x in DailyPayment.objects.filter(date__range=(first, last)).select_related('worker'):
+        r = rows.setdefault(x.worker_id, {'worker': worker_brief(x.worker), 'rate': x.worker.rate, 'days': 0, 'total': 0})
+        r['days'] += 1
+        r['total'] += x.amount
+    return sorted(rows.values(), key=lambda r: r['worker']['name'])
 
 
 def salary_list(ym):
@@ -180,8 +197,10 @@ def salary_list(ym):
             lines.append({'line_id': None, 'worker': worker_brief(w), 'removed': w.removed_on is not None,
                           'paid': False, **f})
     shortage_rows = Shortage.objects.filter(date__range=(first, last)).select_related('worker')
+    daily = daily_paid(ym)
     return {
         'month': ym, 'status': 'approved' if run else 'draft', 'rules': rules, 'lines': lines,
+        'daily': daily, 'total_daily': sum(r['total'] for r in daily),
         'total_net': sum(r['net'] for r in lines), 'total_base': sum(r['base'] for r in lines),
         'total_advances': sum(r['advances'] for r in lines), 'total_shortages': sum(r['shortages'] for r in lines),
         'shortages': [shortage_json(s) for s in shortage_rows],
@@ -224,12 +243,20 @@ def account(worker, ym):
     # worker, carried forward until it is marked paid — even if that happens months later.
     unpaid_lines = (SalaryLine.objects.filter(worker=worker, run__approved_at__isnull=False, paid=False)
                      .exclude(run__month=ym).select_related('run').order_by('run__month'))
-    return {'month': ym, 'locked': salary_locked(ym), 'worker': worker_brief(worker), 'entries': entries, 'owed_by_company': sum(l.net for l in unpaid_lines),
+    payments = [payment_json(x) for x in DailyPayment.objects.filter(worker=worker, date__range=(first, last))]
+    return {'month': ym, 'locked': salary_locked(ym), 'worker': worker_brief(worker), 'pay_type': worker.pay_type,
+            'payments': payments, 'days_paid': len(payments),
+            'entries': entries, 'owed_by_company': sum(l.net for l in unpaid_lines),
             'unpaid_months': [{'line_id': l.id, 'month': l.run.month, 'net': l.net} for l in unpaid_lines], **f}
 
 
 def worker_brief(w):
     return {'id': w.id, 'name': w.name, 'role': w.role, 'active': w.active}
+
+
+def payment_json(x):
+    return {'id': x.id, 'worker_id': x.worker_id, 'date': x.date.isoformat(), 'amount': x.amount,
+            'paid_from': x.paid_from, 'section': x.section}
 
 
 def shortage_json(s):
@@ -238,16 +265,17 @@ def shortage_json(s):
 
 
 # ---------------------------------------------------------------- cash
-def section_cash(day, ds, expenses, settings_):
+def section_cash(day, ds, expenses, payments, settings_):
     payouts = sum(e.amount for e in expenses if e.paid_from == 'droo' and e.section == ds.section)
-    expected = ds.cash - payouts
+    wages = sum(x.amount for x in payments if x.paid_from == 'droo' and x.section == ds.section)
+    expected = ds.cash - payouts - wages
     flt = ds.float_amount if day.closed and ds.float_amount is not None else settings_.float_for(ds.section)
     if day.closed:
         diff = ds.difference
     else:
         diff = None if ds.counted is None else ds.counted - flt - expected
     return {'cash': ds.cash, 'mobile': ds.mobile, 'cashier_id': ds.cashier_id, 'counted': ds.counted, 'float': flt,
-            'payouts': payouts, 'expected': expected, 'difference': diff}
+            'payouts': payouts, 'wages': wages, 'expected': expected, 'difference': diff}
 
 
 def expense_json(e):
@@ -266,7 +294,8 @@ def day_payload(d):
     st = Settings.load()
     sections = list(day.sections.select_related('cashier'))
     expenses = list(Expense.objects.filter(date=d).select_related('category'))
-    sec = {ds.section: section_cash(day, ds, expenses, st) for ds in sections}
+    payments = list(DailyPayment.objects.filter(date=d))
+    sec = {ds.section: section_cash(day, ds, expenses, payments, st) for ds in sections}
     sales = {s: sec[s]['cash'] + sec[s]['mobile'] for s in SECTIONS}
     manual = {a.worker_id: a.status for a in Attendance.objects.filter(date=d)}
     people, missing = [], []
@@ -284,6 +313,13 @@ def day_payload(d):
     prev_week = sum(
         sum(v['cash'] + v['mobile'] for v in _sales_of(d - timedelta(days=i)).values()) for i in range(7, 14))
     diffs = [v['difference'] for v in sec.values() if v['difference'] is not None]
+    # the Malipo step: every daily-paid worker on the books that day, plus anyone already paid that day
+    paid = {x.worker_id: x for x in payments}
+    payees = list(active_workers(d).filter(pay_type='daily')) + list(Worker.objects.filter(id__in=paid).exclude(active=True, pay_type='daily', joined_on__lte=d))
+    pay_rows = [{'worker_id': w.id, 'name': w.name, 'role': w.role, 'rate': w.rate,
+                 'amount': paid[w.id].amount if w.id in paid else None,
+                 'paid_from': paid[w.id].paid_from if w.id in paid else '', 'section': paid[w.id].section if w.id in paid else ''}
+                for w in sorted(payees, key=lambda w: w.name)]
     shortages = Shortage.objects.filter(date=d).select_related('worker')
     advances = Advance.objects.filter(date=d).select_related('worker')
     unpaid = unpaid_salary_by_worker()
@@ -293,6 +329,7 @@ def day_payload(d):
         'visited': day.visited, 'sections': sec, 'sales': sales, 'sales_total': sum(sales.values()),
         'cash_total': sum(v['cash'] for v in sec.values()), 'mobile_total': sum(v['mobile'] for v in sec.values()),
         'expenses': [expense_json(e) for e in expenses], 'expenses_total': sum(e.amount for e in expenses),
+        'payments': pay_rows, 'payments_total': sum(x.amount for x in payments),
         'attendance': people, 'missing': missing,
         'difference_total': sum(diffs), 'has_count': bool(diffs),
         'yesterday': {'total': sum(v['cash'] + v['mobile'] for v in prev.values()), **{
@@ -302,6 +339,21 @@ def day_payload(d):
         'advances': [{'id': a.id, 'worker_id': a.worker_id, 'worker_name': a.worker.name, 'amount': a.amount} for a in advances],
         'unpaid_salaries': [{'worker_id': k, 'name': unpaid_names.get(k, ''), 'amount': v} for k, v in unpaid.items()],
     }
+
+
+@transaction.atomic
+def save_payments(d, rows, user):
+    """Store what each daily-paid worker was handed on day d. An empty or zero amount removes that payment."""
+    require_open(d)
+    for r in rows:
+        worker = Worker.objects.get(pk=r['worker_id'])
+        if not r['amount']:
+            DailyPayment.objects.filter(worker=worker, date=d).delete()
+            continue
+        DailyPayment.objects.update_or_create(worker=worker, date=d, defaults={
+            'amount': r['amount'], 'paid_from': r['paid_from'], 'section': r['section'], 'created_by': user})
+    total = DailyPayment.objects.filter(date=d).aggregate(s=Sum('amount'))['s'] or 0
+    audit(user, 'payments.save', d, total=total)
 
 
 @transaction.atomic
@@ -327,7 +379,7 @@ def close_day(d, user):
             created.append(sh)
         ds.save()
     day.closed_at = timezone.now()
-    day.visited = [0, 1, 2, 3, 4]
+    day.visited = [0, 1, 2, 3, 4, 5]
     day.save()
     audit(user, 'day.close', d, shortages=[{'worker': s.worker_id, 'amount': s.amount} for s in created])
     for s in created:
@@ -345,13 +397,15 @@ def month_salaries_cost(ym):
 def month_report(ym):
     first, last = month_bounds(ym)
     exp = list(Expense.objects.filter(date__range=(first, last)).select_related('category'))
-    spent = {}
+    spent, wages = {}, {}
     for e in exp:
         spent[e.date] = spent.get(e.date, 0) + e.amount
+    for x in DailyPayment.objects.filter(date__range=(first, last)):
+        wages[x.date] = wages.get(x.date, 0) + x.amount
     by_date = {day.date: day for day in Day.objects.filter(date__range=(first, last)).prefetch_related('sections')}
     days = []
-    # a day counts if it sold, was closed, or only had expenses, so the expense column adds up to the month total
-    for d in sorted(set(by_date) | set(spent)):
+    # a day counts if it sold, was closed, or only had expenses or daily pay, so those columns add up to the month total
+    for d in sorted(set(by_date) | set(spent) | set(wages)):
         day = by_date.get(d)
         secs = {s.section: s for s in day.sections.all()} if day else {}
         closed = bool(day and day.closed)
@@ -363,7 +417,8 @@ def month_report(ym):
         diffs = [o.difference for o in secs.values() if o.difference is not None]
         row['diff'] = sum(diffs)
         row['expenses'] = spent.get(d, 0)
-        if row['total'] or closed or row['expenses']:
+        row['payments'] = wages.get(d, 0)
+        if row['total'] or closed or row['expenses'] or row['payments']:
             days.append(row)
     cash = sum(r[s]['cash'] for r in days for s in SECTIONS)
     mobile = sum(r[s]['mobile'] for r in days for s in SECTIONS)
@@ -377,20 +432,24 @@ def month_report(ym):
         c['amount'] += e.amount
     salaries_cost = month_salaries_cost(ym)
     exp_total = sum(spent.values())
+    pay_total = sum(wages.values())
     return {
         'month': ym, 'days': list(reversed(days)), 'total': total, 'cash': cash, 'mobile': mobile,
         'banda': sum(r['banda']['cash'] + r['banda']['mobile'] for r in days),
         'mgahawa': sum(r['mgahawa']['cash'] + r['mgahawa']['mobile'] for r in days),
         'average': round(total / len(selling)) if selling else 0, 'best': best,
         'expenses_total': exp_total, 'expenses_by_category': sorted(by_cat.values(), key=lambda c: -c['amount']),
-        'salaries_total': salaries_cost, 'profit': total - exp_total - salaries_cost,
+        'payments_total': pay_total, 'salaries_total': salaries_cost, 'profit': total - exp_total - pay_total - salaries_cost,
+        'daily_paid': daily_paid(ym),
+        'payment_rows': [{**payment_json(x), 'worker_name': x.worker.name}
+                         for x in DailyPayment.objects.filter(date__range=(first, last)).select_related('worker')],
         'diff_total': sum(r['diff'] for r in days),
     }
 
 
 def day_pay(d):
-    """What each worker earned on one day, by the same rules as the monthly list: a monthly salary is
-    worth 1/30 per day and is lost on days the rules cut; daily pay is earned on days worked or paid."""
+    """What each worker earned on one day. A monthly salary is worth 1/30 per day and is lost on days the
+    rules cut, as on the monthly list; a daily-paid worker earned what they were handed that day."""
     run = SalaryRun.objects.filter(month=ym_of(d), approved_at__isnull=False).first()
     rules = run.rules if run else Settings.load().rules
     adv, short = {}, {}
@@ -398,6 +457,7 @@ def day_pay(d):
         adv[a.worker_id] = adv.get(a.worker_id, 0) + a.amount
     for s in Shortage.objects.filter(date=d, status='applied'):
         short[s.worker_id] = short.get(s.worker_id, 0) + s.amount
+    paid = {x.worker_id: x.amount for x in DailyPayment.objects.filter(date=d)}
     lines = []
     for w in Worker.objects.filter(joined_on__lte=d).exclude(removed_on__lt=d).order_by('name'):
         status = status_on(w, d)[0]
@@ -405,8 +465,7 @@ def day_pay(d):
             cut = status == 'absent' or (status in SPECIAL and rules[status]['cut'])
             earned = 0 if cut else round(w.rate / 30)
         else:
-            paid = status in ('present', 'late') or (status in SPECIAL and rules[status]['pay'])
-            earned = w.rate if paid else 0
+            earned = paid.get(w.id, 0)
         lines.append({'worker': worker_brief(w), 'pay_type': w.pay_type, 'rate': w.rate, 'status': status,
                       'earned': earned, 'advances': adv.get(w.id, 0), 'shortages': short.get(w.id, 0)})
     return {'date': d.isoformat(), 'locked': run is not None, 'lines': lines,
@@ -415,19 +474,20 @@ def day_pay(d):
 
 
 def day_report(d):
-    """Profit as the manager wants it on a given day: sales and expenses added up from the 1st of the month
-    to that day, minus the whole month's salaries."""
+    """Profit as the manager wants it on a given day: sales, expenses and daily pay added up from the 1st of
+    the month to that day, minus the whole month's (monthly) salaries."""
     p = day_payload(d)
     ym = ym_of(d)
     first, _ = month_bounds(ym)
     month = month_report(ym)
     rows = sorted((r for r in month['days'] if r['date'] <= p['date']), key=lambda r: r['date'])
-    running, sold, spent = [], 0, 0
+    running, sold, spent, wages = [], 0, 0, 0
     for r in rows:
         sold += r['total']
         spent += r['expenses']
-        running.append({'date': r['date'], 'dow': r['dow'], 'sales': r['total'], 'expenses': r['expenses'],
-                        'sales_to_date': sold, 'expenses_to_date': spent})
+        wages += r['payments']
+        running.append({'date': r['date'], 'dow': r['dow'], 'sales': r['total'], 'expenses': r['expenses'], 'payments': r['payments'],
+                        'sales_to_date': sold, 'expenses_to_date': spent, 'payments_to_date': wages})
     by_cat = {}
     for e in Expense.objects.filter(date__range=(first, d)).select_related('category'):
         c = by_cat.setdefault(e.category.key, {'key': e.category.key, 'name_sw': e.category.name_sw,
@@ -439,8 +499,8 @@ def day_report(d):
         'mobile': sum(r[s]['mobile'] for r in rows for s in SECTIONS),
         'sales': {s: sum(r[s]['cash'] + r[s]['mobile'] for r in rows) for s in SECTIONS},
         'expenses_total': spent, 'expenses_by_category': sorted(by_cat.values(), key=lambda c: -c['amount']),
-        'salaries_total': month['salaries_total'], 'profit': sold - spent - month['salaries_total'],
-        'day_sales': p['sales_total'], 'day_expenses': p['expenses_total'], 'running': running,
+        'payments_total': wages, 'salaries_total': month['salaries_total'], 'profit': sold - spent - wages - month['salaries_total'],
+        'day_sales': p['sales_total'], 'day_expenses': p['expenses_total'], 'day_payments': p['payments_total'], 'running': running,
     }
 
 

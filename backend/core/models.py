@@ -139,6 +139,20 @@ class Expense(Stamped):
         ordering = ['-date', '-id']
 
 
+class DailyPayment(Stamped):
+    """What a daily-paid worker was handed for one day, typed in by hand when the day is closed.
+    This is their pay: it is not a deduction from any monthly salary."""
+    worker = models.ForeignKey(Worker, on_delete=models.PROTECT, related_name='daily_payments')
+    date = models.DateField()
+    amount = models.BigIntegerField()
+    paid_from = models.CharField(max_length=6, choices=Expense.FROM)
+    section = models.CharField(max_length=8, choices=SECTION_CHOICES, blank=True)
+
+    class Meta:
+        ordering = ['date', 'id']
+        unique_together = [('worker', 'date')]
+
+
 class Advance(Stamped):
     worker = models.ForeignKey(Worker, on_delete=models.CASCADE, related_name='advances')
     date = models.DateField()

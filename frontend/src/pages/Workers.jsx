@@ -1,27 +1,32 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { ArrowCounterClockwise, CalendarPlus, CalendarX, CaretLeft, HandCoins, MagnifyingGlass, Plus, Trash, UserMinus } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, CalendarBlank, CalendarPlus, CalendarX, CaretLeft, CaretRight, CheckCircle, Coins, HandCoins, MagnifyingGlass, Plus, Trash, UserMinus } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { useAccount, useActions, useErr, useMeta, useWorker, useWorkers } from '../hooks.js';
 import { useI } from '../i18n.jsx';
 import { num, parseISO, sum, tsh } from '../format.js';
-import { REMOVE_REASONS, ROLES, SECTIONS, STATUS } from '../vocab.js';
-import { Avatar, Btn, Callout, Chip, Empty, Modal, MoneyInput, Page, PageSkeleton, Rise, Seg, SelectField, Tabs, TextField } from '../components/ui.jsx';
+import { PAID_FROM, REMOVE_REASONS, ROLES, SECTIONS, STATUS } from '../vocab.js';
+import { Avatar, Btn, Callout, Chip, Empty, Leader, Modal, MoneyInput, Page, PageSkeleton, Rise, Seg, SelectField, Tabs, TextField } from '../components/ui.jsx';
 
 /* ------------------------------------------------------------ list */
 export function WorkersList() {
   const { t, p, dayOffName } = useI();
   const { data: workers } = useWorkers();
   const [q, setQ] = useState('');
+  const [kind, setKind] = useState('all');
   const [adding, setAdding] = useState(false);
   const [showRemoved, setShowRemoved] = useState(false);
   const act = useActions();
   const fail = useErr();
   if (!workers) return <PageSkeleton />;
   const match = (w) => w.name.toLowerCase().includes(q.trim().toLowerCase());
-  const active = workers.filter((w) => w.active && match(w));
+  const found = workers.filter((w) => w.active && match(w));
+  const active = found.filter((w) => kind === 'all' || w.pay_type === kind);
   const removed = workers.filter((w) => !w.active);
+  const count = (k) => found.filter((w) => k === 'all' || w.pay_type === k).length;
+  const kinds = [['all', t('Wote', 'All')], ['monthly', t('Kwa mwezi', 'Monthly')], ['daily', t('Kila siku', 'Daily')]]
+    .map(([k, label]) => [k, <>{label}<em className="seg-count">{count(k)}</em></>]);
 
   return (
     <Page>
@@ -33,6 +38,10 @@ export function WorkersList() {
         </div>
       </header>
 
+      <div className="list-tools">
+        <Seg label={t('Onyesha', 'Show')} value={kind} onChange={setKind} options={kinds} />
+      </div>
+
       {active.length === 0 ? <Empty>{t('Hakuna mfanyakazi anayelingana.', 'No workers match.')}</Empty> : (
         <div className="worker-grid">
           {active.map((w, i) => (
@@ -40,10 +49,14 @@ export function WorkersList() {
               <Link to={`/wafanyakazi/${w.id}`} className="worker-card">
                 <div className="top">
                   <Avatar name={w.name} />
-                  <div style={{ minWidth: 0 }}><h3>{w.name}</h3><p className="muted" style={{ fontSize: '0.9rem' }}>{p(ROLES[w.role])}</p></div>
+                  <div className="who"><h3>{w.name}</h3><p className="muted">{p(ROLES[w.role])}</p></div>
+                  <span className="go" aria-hidden="true"><CaretRight size={15} weight="bold" /></span>
                 </div>
                 <div className="chips">
-                  <Chip tone="brass">{w.pay_type === 'monthly' ? t('Mshahara', 'Monthly') : t('Kila siku', 'Daily')}: {tsh(w.rate)}</Chip>
+                  <Chip tone="brass">
+                    {w.pay_type === 'monthly' ? <CalendarBlank size={12} weight="bold" /> : <Coins size={12} weight="bold" />}
+                    {w.pay_type === 'monthly' ? t('Mshahara', 'Monthly') : t('Kila siku', 'Daily')}: {tsh(w.rate)}
+                  </Chip>
                   {w.company_owes ? <Chip tone="bad"><HandCoins size={12} weight="fill" />{t('Haijalipwa', 'Unpaid')} {tsh(w.company_owes)}</Chip> : null}
                   {w.day_off == null ? <Chip tone="info"><CalendarX size={12} weight="bold" />{t('Hana siku ya mapumziko', 'No day off')}</Chip> : null}
                 </div>
@@ -158,8 +171,9 @@ export function WorkerDetail() {
         </div>
       </header>
       <Tabs label={t('Sehemu', 'Sections')} value={tab} onChange={(v) => setSp(v === 'overview' ? {} : { tab: v }, { replace: true })}
-        items={[['overview', t('Muhtasari', 'Overview')], ['leave', t('Ruhusa na likizo', 'Leave')], ['account', t('Akaunti', 'Account')]]} />
-      {tab === 'overview' ? <Overview w={w} today={today} /> : tab === 'leave' ? <Leave w={w} /> : <AccountTab w={w} ym={ym} today={today} />}
+        items={[['overview', t('Muhtasari', 'Overview')], ['pay', t('Malipo', 'Pay')], ['leave', t('Ruhusa na likizo', 'Leave')], ['account', t('Akaunti', 'Account')]]} />
+      {tab === 'overview' ? <Overview w={w} today={today} /> : tab === 'pay' ? <PayTab key={w.id} w={w} today={today} />
+        : tab === 'leave' ? <Leave w={w} /> : <AccountTab w={w} ym={ym} today={today} />}
     </Page>
   );
 }
@@ -298,6 +312,116 @@ function Leave({ w }) {
   );
 }
 
+/* How a worker is paid: a monthly salary on the month-end list, or daily pay entered in the close-day Malipo step. */
+function PayTab({ w, today }) {
+  const { t, monthName } = useI();
+  const act = useActions();
+  const fail = useErr();
+  const ym = today.slice(0, 7);
+  const { data: a } = useAccount(w.id, ym);
+  const [type, setType] = useState(w.pay_type);
+  const [rate, setRate] = useState(w.rate);
+  const [busy, setBusy] = useState(false);
+  const switching = type !== w.pay_type;
+  const changed = switching || rate !== w.rate;
+  const month = monthName(ym);
+  const options = [
+    ['monthly', CalendarBlank, t('Mshahara wa mwezi', 'Monthly salary'),
+      t('Yuko kwenye orodha ya mishahara ya mwisho wa mwezi. Siku asizofanya kazi hukatwa (mshahara ÷ 30).', 'On the month-end salary list. Days not worked are deducted (salary ÷ 30).')],
+    ['daily', Coins, t('Malipo ya kila siku', 'Daily pay'),
+      t('Hulipwa kila siku. Unaandika kiasi kwenye hatua ya Malipo unapofunga siku.', 'Paid every day. You enter the amount in the Malipo step when you close the day.')],
+  ];
+  const save = async () => {
+    if (!rate) { toast.warning(t('Andika kiasi.', 'Enter the amount.')); return; }
+    setBusy(true);
+    try { await act.patchWorker(w.id, { pay_type: type, rate }); toast.success(t('Malipo yamebadilishwa.', 'Pay updated.')); } catch (ex) { fail(ex); } finally { setBusy(false); }
+  };
+  const warning = !switching ? null : type === 'daily'
+    ? t(`${w.name} ataondolewa kwenye orodha ya mishahara ya ${month} na atalipwa kila siku kwenye hatua ya Malipo. Siku alizokwisha fanya kazi mwezi huu hazitalipwa kwenye orodha, kwa hiyo zilipe kupitia Malipo.`,
+      `${w.name} leaves the ${month} salary list and is paid each day in the Malipo step. Days already worked this month won't be paid on the list, so pay them through Malipo.`)
+    : t(`${w.name} ataingia kwenye orodha ya mishahara ya ${month} kwa mshahara wa mwezi mzima.${a?.base ? ` Malipo ya siku aliyokwisha pokea mwezi huu (${tsh(a.base)}) hayatakatwa yenyewe; yaandike kama advansi kama yanapaswa kukatwa.` : ''}`,
+      `${w.name} joins the ${month} salary list on a full monthly salary.${a?.base ? ` Daily pay already received this month (${tsh(a.base)}) is not taken off automatically; record it as an advance if it should be.` : ''}`);
+  return (
+    <div className="two" style={{ marginTop: 0 }}>
+      <section className="panel stack">
+        <div className="panel-head" style={{ marginBottom: 0 }}><div><h2>{t('Analipwa vipi?', 'How is this worker paid?')}</h2><p className="muted">{t(`Chagua jinsi ${w.name} anavyolipwa.`, `Choose how ${w.name} is paid.`)}</p></div></div>
+        <div className="pay-choice" role="radiogroup" aria-label={t('Aina ya malipo', 'Pay type')}>
+          {options.map(([v, Icon, title, desc]) => (
+            <label key={v} className="pay-option">
+              <input type="radio" name="pay_type" value={v} checked={type === v} onChange={() => setType(v)} />
+              <span className="ico"><Icon size={22} weight="duotone" aria-hidden="true" /></span>
+              <span><strong>{title}</strong><small>{desc}</small></span>
+              {type === v ? <CheckCircle className="tick" size={20} weight="fill" aria-hidden="true" /> : null}
+            </label>
+          ))}
+        </div>
+        <MoneyInput label={type === 'monthly' ? t('Mshahara kwa mwezi', 'Monthly salary') : t('Kiwango cha siku', 'Daily rate')} value={rate} onChange={setRate}
+          hint={type === 'monthly' ? t('Kiwango kipya kinahesabiwa kwa mwezi mzima wa sasa.', 'A new amount counts for the whole current month.')
+            : t('Kinaonekana kama pendekezo kwenye hatua ya Malipo; kiasi halisi unaandika kila siku.', 'Shown as a suggestion in the Malipo step; you type the actual amount each day.')} />
+        {warning ? <Callout tone="warn">{warning}{a?.locked ? ` ${t(`Orodha ya ${month} imeshaidhinishwa, kwa hiyo mabadiliko yataonekana kwenye orodha kuanzia mwezi ujao.`, `The ${month} list is already approved, so the list changes from next month.`)}` : ''}</Callout> : null}
+        <div><Btn className="btn-primary" disabled={!changed} loading={busy} onClick={save}><CheckCircle size={18} weight="bold" />{t('Hifadhi', 'Save')}</Btn></div>
+      </section>
+      <section className="panel">
+        <div className="panel-head"><h2>{t(`Mwezi huu: ${month}`, `This month: ${month}`)}</h2></div>
+        {!a ? <PageSkeleton /> : (
+          <div className="ledger flat">
+            <Leader label={t('Analipwa sasa', 'Currently paid')} value={w.pay_type === 'monthly' ? t('Kwa mwezi', 'Monthly') : t('Kila siku', 'Daily')} />
+            <Leader label={w.pay_type === 'monthly' ? t('Mshahara kwa mwezi', 'Monthly salary') : t('Kiwango cha siku', 'Daily rate')} value={tsh(w.rate)} />
+            {w.pay_type === 'monthly' ? (
+              <>
+                <Leader label={t('Mshahara hadi sasa', 'Salary so far')} value={tsh(a.base)} />
+                <Leader strong label={t('Atalipwa', 'Net pay')} value={tsh(a.net)} />
+              </>
+            ) : (
+              <>
+                <Leader label={t('Siku alizolipwa', 'Days paid')} value={String(a.days_paid)} />
+                <Leader strong label={t('Amelipwa', 'Paid')} value={tsh(a.base)} />
+              </>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/* Daily-paid workers are paid each day in the close-day Malipo step, so their account is what they were handed. */
+function DailyAccount({ a, w }) {
+  const { t, p, fmtDate } = useI();
+  return (
+    <div className="two" style={{ marginTop: 0 }}>
+      <div className="stack">
+        <div className="paycard">
+          <p style={{ opacity: 0.75, fontWeight: 500 }}>{t('Amelipwa mwezi huu', 'Paid this month')}</p>
+          <p className="bignum"><span className="cur">TSh</span>{num(a.base)}</p>
+          <div className="trio">
+            <div><small>{t('Siku alizolipwa', 'Days paid')}</small><b>{a.days_paid}</b></div>
+            <div><small>{t('Kiwango', 'Rate')}</small><b>{tsh(w.rate)}</b></div>
+            <div><small>{t('Wastani kwa siku', 'Average a day')}</small><b>{tsh(a.days_paid ? Math.round(a.base / a.days_paid) : 0)}</b></div>
+          </div>
+        </div>
+        <Callout tone="info">{t('Hulipwa kila siku. Kiasi huandikwa kwenye hatua ya Malipo unapofunga siku, kwa hiyo hana mshahara wa mwisho wa mwezi.', 'Paid every day. The amount is entered in the Malipo step when you close the day, so there is no month-end salary.')}</Callout>
+        {a.advances || a.shortages ? (
+          <Callout tone="warn">{t(`Mwezi huu: advansi ${tsh(a.advances)}, upungufu ${tsh(a.shortages)}. Unaweza kuyapunguza kwenye malipo ya siku.`, `This month: advances ${tsh(a.advances)}, shortages ${tsh(a.shortages)}. You can take them off the daily pay.`)}</Callout>
+        ) : null}
+      </div>
+      <section className="panel">
+        <div className="panel-head"><h2>{t('Malipo ya kila siku', 'Daily payments')}</h2></div>
+        {a.payments.length === 0 ? <Empty>{t('Hajalipwa siku yoyote mwezi huu.', 'Not paid on any day this month.')}</Empty> : (
+          <ul className="list">
+            {a.payments.map((x) => (
+              <li key={x.id}>
+                <span className="li-main"><strong>{fmtDate(x.date)}</strong><span>{p(PAID_FROM[x.paid_from])}{x.section ? ` · ${p(SECTIONS[x.section])}` : ''}</span></span>
+                <span className="li-amt">{tsh(x.amount)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function AccountTab({ w, ym, today }) {
   const { t, p, fmtDate, monthName } = useI();
   const { data: a } = useAccount(w.id, ym);
@@ -307,6 +431,7 @@ function AccountTab({ w, ym, today }) {
   const [reason, setReason] = useState('');
   const [adv, setAdv] = useState(null);
   if (!a) return <PageSkeleton />;
+  if (a.pay_type === 'daily') return <DailyAccount a={a} w={w} />;
   const putShort = async (e) => {
     e.preventDefault();
     if (!amt || !reason.trim()) { toast.warning(t('Andika kiasi na sababu.', 'Enter the amount and a reason.')); return; }
