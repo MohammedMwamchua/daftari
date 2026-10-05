@@ -3,9 +3,9 @@ import { Link, NavLink, Route, Routes, useLocation, Navigate } from 'react-route
 import { useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'motion/react';
 import { Toaster } from 'sonner';
-import { CaretRight, CheckCircle, Gear, House, Notebook, SignOut, UsersThree, Wallet } from '@phosphor-icons/react';
+import { CaretRight, ChatCircleText, CheckCircle, Gear, House, Notebook, SignOut, UsersThree, Wallet } from '@phosphor-icons/react';
 import { tokens } from './api.js';
-import { useDay, useMeta } from './hooks.js';
+import { useDay, useMeta, useOpinionsUnread } from './hooks.js';
 import { useI } from './i18n.jsx';
 import { STEPS } from './vocab.js';
 import { Logo, PageSkeleton } from './components/ui.jsx';
@@ -15,6 +15,8 @@ import Leo from './pages/Leo.jsx';
 const Close = lazy(() => import('./pages/Close.jsx'));
 const Money = lazy(() => import('./pages/Money.jsx'));
 const Settings = lazy(() => import('./pages/Settings.jsx'));
+const Opinions = lazy(() => import('./pages/Opinions.jsx'));
+const OpinionForm = lazy(() => import('./pages/OpinionForm.jsx'));
 const WorkersList = lazy(() => import('./pages/Workers.jsx').then((m) => ({ default: m.WorkersList })));
 const WorkerDetail = lazy(() => import('./pages/Workers.jsx').then((m) => ({ default: m.WorkerDetail })));
 
@@ -47,11 +49,13 @@ function Shell({ onLogout }) {
   const { t } = useI();
   const location = useLocation();
   const [theme, toggle] = useTheme();
+  const unread = useOpinionsUnread().data?.unread || 0;
   const items = [
     ['/', t('Leo', 'Today'), House, true],
     ['/funga', t('Funga siku', 'Close day'), Notebook],
     ['/wafanyakazi', t('Wafanyakazi', 'Workers'), UsersThree],
     ['/fedha', t('Fedha', 'Money'), Wallet],
+    ['/maoni', t('Maoni', 'Feedback'), ChatCircleText],
   ];
   const Links = ({ pillId, mobile }) => items.map(([to, label, Icon, end]) => (
     <NavLink key={to} to={to} end={end}>
@@ -59,7 +63,10 @@ function Shell({ onLogout }) {
         <>
           {isActive ? <motion.span layoutId={pillId} className="pill" transition={{ type: 'spring', stiffness: 460, damping: 38 }} /> : null}
           <span className="ico"><Icon size={mobile ? 24 : 20} weight={isActive ? 'fill' : 'duotone'} /></span>
-          <span>{label}</span>
+          <span className="nav-text">{label}</span>
+          {to === '/maoni' && unread ? (
+            <span className="nav-badge">{unread > 99 ? '99+' : unread}<span className="sr"> {t('mapya', 'new')}</span></span>
+          ) : null}
         </>
       )}
     </NavLink>
@@ -106,6 +113,7 @@ function Shell({ onLogout }) {
               <Route path="/wafanyakazi/:id" element={<WorkerDetail />} />
               <Route path="/fedha" element={<Money />} />
               <Route path="/mipangilio" element={<Settings />} />
+              <Route path="/maoni" element={<Opinions />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             </Suspense>
@@ -129,6 +137,7 @@ function Gate({ onLogout }) {
 }
 
 export default function App() {
+  const { pathname } = useLocation();
   const qc = useQueryClient();
   const [authed, setAuthed] = useState(() => !!tokens.get());
   const [theme, toggle] = useTheme();
@@ -137,6 +146,8 @@ export default function App() {
     window.addEventListener('daftari:logout', logout);
     return () => window.removeEventListener('daftari:logout', logout);
   }, [logout]);
+  // the public opinions form needs no login, so it shows whether or not the manager is signed in
+  if (pathname.startsWith('/toa-maoni')) return <Suspense fallback={null}><OpinionForm /></Suspense>;
   if (!authed) return <><Login onDone={() => setAuthed(true)} /><Toaster theme={theme} richColors position="top-center" /></>;
   return <Gate onLogout={logout} />;
 }

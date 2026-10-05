@@ -15,6 +15,9 @@ export const useAccount = (id, month) => useQuery(q(['account', id, month], `/wo
 export const useSalary = (ym) => useQuery(q(['salary', ym], `/salary/${ym}/`));
 export const useReport = (ym) => useQuery(q(['report', ym], `/reports/month/${ym}/`));
 export const useExpenses = (ym) => useQuery(q(['expenses', ym], `/expenses/?month=${ym}`));
+export const useOpinions = () => useQuery(q(['opinions'], '/opinions/', { refetchInterval: 60_000 }));
+/* the menu badge: checks for new opinions every minute */
+export const useOpinionsUnread = () => useQuery(q(['opinions-unread'], '/opinions/unread/', { refetchInterval: 60_000 }));
 
 /* Turns an API failure into a friendly, translated message. */
 export function useErr() {
@@ -75,5 +78,8 @@ export function useActions() {
     patchCategory: (id, body) => settle(api.patch(`/categories/${id}/`, body)),
     delCategory: (id) => settle(api.del(`/categories/${id}/`)),
     changePassword: (body) => api.post('/auth/change-password/', body),
+    readOpinion: (id, read) => settle(api.patch(`/opinions/${id}/`, { read })),
+    readAllOpinions: () => settle(api.post('/opinions/read-all/')),
+    delOpinion: (id) => settle(api.del(`/opinions/${id}/`)),
   };
 }

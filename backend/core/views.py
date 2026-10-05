@@ -8,13 +8,15 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from . import exports, services as svc
 from .errors import Conflict
 from .models import (
-    SECTIONS, Advance, Attendance, Day, Expense, ExpenseCategory, LeaveRecord, SalaryLine, Settings,
+    SECTIONS, Advance, Attendance, Day, Expense, ExpenseCategory, LeaveRecord, Opinion, SalaryLine, Settings,
     Shortage, Worker,
 )
 
@@ -521,3 +523,81 @@ class DayReportView(APIView):
         if fmt == 'xlsx':
             return _file_response('xlsx', f'mauzo-{d}', exports.day_xlsx(svc.day_payload(d), svc.day_report(d), lang))
         return Response(svc.day_report(d))
+
+
+# ---------------------------------------------------------------- opinions
+class OpinionThrottle(AnonRateThrottle):
+    """Spam guard for the public form, per device. The address is kept only briefly in the cache, never with the opinion."""
+    scope = 'opinions'
+    rate = '20/hour'
+
+
+def opinion_json(o):
+    return {'id': o.id, 'created_at': o.created_at.isoformat(), 'source': o.source, 'topic': o.topic, 'rating': o.rating,
+            'message': o.message, 'contact': o.contact, 'read': o.read_at is not None}
+
+
+def opinion_counts():
+    qs = Opinion.objects.all()
+    rated = [r for r in qs.exclude(rating=None).values_list('rating', flat=True)]
+    return {'total': qs.count(), 'unread': qs.filter(read_at=None).count(),
+            'customer': qs.filter(source='customer').count(), 'worker': qs.filter(source='worker').count(),
+            'rated': len(rated), 'average_rating': round(sum(rated) / len(rated), 1) if rated else None}
+
+
+class OpinionSubmitView(APIView):
+    """The public opinions form: no login, so customers and workers can say what they think."""
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [OpinionThrottle]
+
+    def post(self, request):
+        data = request.data if isinstance(request.data, dict) else {}
+        if str(data.get('website') or '').strip():  # a hidden field only bots fill in: act as if it worked
+            return Response({'ok': True}, status=201)
+        source = pchoice(data, 'source', [k for k, _ in Opinion.SOURCES])
+        topic = pchoice({'topic': data.get('topic') or 'other'}, 'topic', [k for k, _ in Opinion.TOPICS])
+        rating = pint(data, 'rating', required=False, minimum=1)
+        if rating is not None and rating > 5:
+            raise ValidationError({'rating': 'From 1 to 5.'})
+        message = str(data.get('message') or '').strip()
+        if len(message) < 3:
+            raise ValidationError({'message': 'Write at least 3 characters.'})
+        if len(message) > Opinion.MESSAGE_MAX:
+            raise ValidationError({'message': f'At most {Opinion.MESSAGE_MAX} characters.'})
+        contact = str(data.get('contact') or '').strip()
+        if len(contact) > Opinion.CONTACT_MAX:
+            raise ValidationError({'contact': f'At most {Opinion.CONTACT_MAX} characters.'})
+        Opinion.objects.create(source=source, topic=topic, rating=rating, message=message, contact=contact)
+        return Response({'ok': True}, status=201)
+
+
+class OpinionsView(APIView):
+    def get(self, request):
+        return Response({'opinions': [opinion_json(o) for o in Opinion.objects.all()], 'counts': opinion_counts()})
+
+
+class OpinionsUnreadView(APIView):
+    """Just the unread count, for the badge in the menu."""
+    def get(self, request):
+        return Response({'unread': Opinion.objects.filter(read_at=None).count()})
+
+
+class OpinionsReadAllView(APIView):
+    def post(self, request):
+        return Response({'marked': Opinion.objects.filter(read_at=None).update(read_at=timezone.now())})
+
+
+class OpinionView(APIView):
+    def patch(self, request, pk):
+        o = get_object_or_404(Opinion, pk=pk)
+        read = request.data.get('read')
+        if not isinstance(read, bool):
+            raise ValidationError({'read': 'Send true or false.'})
+        o.read_at = (o.read_at or timezone.now()) if read else None
+        o.save(update_fields=['read_at'])
+        return Response(opinion_json(o))
+
+    def delete(self, request, pk):
+        get_object_or_404(Opinion, pk=pk).delete()
+        return Response(status=204)

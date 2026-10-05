@@ -5,11 +5,12 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 
 from core import services as svc
 from core.models import (
-    SECTIONS, Advance, Attendance, DailyPayment, Day, DaySection, Expense, ExpenseCategory, LeaveRecord, Settings,
-    Shortage, Worker,
+    SECTIONS, Advance, Attendance, DailyPayment, Day, DaySection, Expense, ExpenseCategory, LeaveRecord, Opinion,
+    Settings, Shortage, Worker,
 )
 
 CATEGORIES = [('malighafi', 'Malighafi', 'Ingredients'), ('kodi', 'Kodi', 'Rent'), ('umeme', 'Umeme', 'Electricity'),
@@ -105,6 +106,19 @@ class Command(BaseCommand):
         day.save()
         LeaveRecord.objects.create(worker=ws[5], kind='permission', start=today, end=today, reason='Shughuli ya familia')
         LeaveRecord.objects.create(worker=ws[3], kind='holiday', start=today + timedelta(days=5), end=today + timedelta(days=8), reason='Kwenda kijijini')
+        # opinions from the public form: (hours ago, source, topic, stars, message, contact, already read)
+        for hours, source, topic, stars, message, contact, read in [
+            (2, 'customer', 'food', 5, 'Mishkaki ilikuwa mitamu sana, na chipsi zilikuwa za moto. Tutarudi!', '', False),
+            (5, 'customer', 'service', 3, 'Chakula kizuri ila tulisubiri dakika 40 kupata oda yetu.', 'Halima 0715 300 412', False),
+            (9, 'worker', 'other', None, 'Jiko linahitaji feni nyingine, joto ni kali sana mchana.', '', False),
+            (26, 'customer', 'price', 4, 'Bei ni nzuri kwa ukubwa wa sahani. Ongezeni juisi za matunda.', '', True),
+            (30, 'customer', 'cleanliness', 2, 'Meza za nje zilikuwa chafu jioni ile.', '', True),
+            (52, 'worker', 'service', None, 'Tungependa ratiba ya zamu itolewe mapema kila wiki.', 'Zawadi', True),
+            (75, 'customer', 'food', 5, 'Best grilled fish in Stone Town. Friendly staff too.', 'Tom (visitor)', True),
+        ]:
+            o = Opinion.objects.create(source=source, topic=topic, rating=stars, message=message, contact=contact)
+            at = timezone.now() - timedelta(hours=hours)
+            Opinion.objects.filter(pk=o.pk).update(created_at=at, read_at=at + timedelta(hours=1) if read else None)
         # lock the two oldest full months so the "approved" state can be seen
         cur = svc.ym_of(today)
         for ym in [m for m in svc.months_available() if m != cur][1:]:

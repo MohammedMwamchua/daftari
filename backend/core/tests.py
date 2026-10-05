@@ -6,12 +6,13 @@ from datetime import timedelta
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.management import call_command
 from django.test import TransactionTestCase
 from rest_framework.test import APITestCase
 
 from core import services as svc
-from core.models import Attendance, AuditLog, DailyPayment, ExpenseCategory, Settings, Worker
+from core.models import Attendance, AuditLog, DailyPayment, ExpenseCategory, Opinion, Settings, Worker
 
 
 class RulesTest(APITestCase):
@@ -384,6 +385,73 @@ class RulesTest(APITestCase):
         g = svc.salary_figures(self.cashier, ym, Settings.load().rules)
         absent = min(2, len(marked))
         self.assertEqual(g['base'], 300000 - round(300000 / 30 * absent))
+
+
+class OpinionsTest(APITestCase):
+    def setUp(self):
+        cache.clear()  # the spam guard counts in the cache
+        self.manager = get_user_model().objects.create_user('m', password='x')
+
+    def send(self, **body):
+        return self.client.post('/api/opinions/submit/', {'source': 'customer', 'message': 'Chakula kitamu sana', **body}, format='json')
+
+    def test_anyone_can_send_and_it_stays_anonymous(self):
+        r = self.send(rating=5, topic='food')
+        self.assertEqual(r.status_code, 201, r.data)
+        o = Opinion.objects.get()
+        self.assertEqual((o.source, o.topic, o.rating, o.contact, o.read_at), ('customer', 'food', 5, '', None))
+        # a worker may leave a name if they want a reply; topic and rating can be left out
+        r = self.send(source='worker', message='  Tunahitaji gesi zaidi  ', contact='Juma 0712 000 000', rating='', topic=None)
+        self.assertEqual(r.status_code, 201, r.data)
+        o = Opinion.objects.get(source='worker')
+        self.assertEqual((o.topic, o.rating, o.message, o.contact), ('other', None, 'Tunahitaji gesi zaidi', 'Juma 0712 000 000'))
+        # nothing about the sender's device is saved
+        self.assertEqual({f.name for f in Opinion._meta.fields},
+                         {'id', 'created_at', 'source', 'topic', 'rating', 'message', 'contact', 'read_at'})
+
+    def test_form_rules(self):
+        for body, field in [({'source': 'boss'}, 'source'), ({'message': 'ok'}, 'message'), ({'message': 'x' * 1001}, 'message'),
+                            ({'rating': 6}, 'rating'), ({'rating': 0}, 'rating'), ({'topic': 'music'}, 'topic'),
+                            ({'contact': 'x' * 101}, 'contact')]:
+            r = self.send(**body)
+            self.assertEqual(r.status_code, 400, body)
+            self.assertIn(field, r.data['errors'])
+        self.assertEqual(self.send(message='x' * 1000).status_code, 201)
+
+    def test_bots_filling_the_hidden_field_are_ignored(self):
+        self.assertEqual(self.send(website='http://spam.example').status_code, 201)
+        self.assertEqual(Opinion.objects.count(), 0)
+
+    def test_one_device_cannot_flood_the_form(self):
+        for _ in range(20):
+            self.assertEqual(self.send().status_code, 201)
+        self.assertEqual(self.send().status_code, 429)
+        self.assertEqual(Opinion.objects.count(), 20)
+
+    def test_an_expired_login_does_not_block_the_form(self):
+        self.client.credentials(HTTP_AUTHORIZATION='Bearer not-a-valid-token')
+        self.assertEqual(self.send().status_code, 201)
+
+    def test_only_the_manager_reads_them(self):
+        self.send(rating=4)
+        self.send(source='worker', rating=2)
+        self.send(source='worker')
+        for path in ('/api/opinions/', '/api/opinions/unread/'):
+            self.assertEqual(self.client.get(path).status_code, 401)
+        self.client.force_authenticate(self.manager)
+        r = self.client.get('/api/opinions/')
+        self.assertEqual(len(r.data['opinions']), 3)
+        self.assertEqual(r.data['counts'], {'total': 3, 'unread': 3, 'customer': 1, 'worker': 2, 'rated': 2, 'average_rating': 3.0})
+        first = r.data['opinions'][0]['id']
+        r = self.client.patch(f'/api/opinions/{first}/', {'read': True}, format='json')
+        self.assertTrue(r.data['read'])
+        self.assertEqual(self.client.get('/api/opinions/unread/').data, {'unread': 2})
+        self.assertEqual(self.client.patch(f'/api/opinions/{first}/', {'read': 'yes'}, format='json').status_code, 400)
+        self.client.patch(f'/api/opinions/{first}/', {'read': False}, format='json')
+        self.assertEqual(self.client.post('/api/opinions/read-all/').data, {'marked': 3})
+        self.assertEqual(self.client.get('/api/opinions/unread/').data, {'unread': 0})
+        self.assertEqual(self.client.delete(f'/api/opinions/{first}/').status_code, 204)
+        self.assertEqual(Opinion.objects.count(), 2)
 
 
 class BackupTest(TransactionTestCase):

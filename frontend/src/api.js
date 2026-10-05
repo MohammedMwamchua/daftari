@@ -71,6 +71,14 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, data);
     tokens.set(data);
   },
+  /* The public opinions form. Sent without the manager's login, so an old session can never get in the way. */
+  async submitOpinion(body) {
+    const res = await fetch(`${BASE}/opinions/submit/`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data);
+  },
   async download(path, fallback) {
     const res = await raw(path);
     if (!res.ok) throw new ApiError(res.status, {});

@@ -207,3 +207,23 @@ class AuditLog(models.Model):
 
     class Meta:
         ordering = ['-at']
+
+
+class Opinion(models.Model):
+    """An opinion sent through the public form by a customer or a worker.
+    Anonymous unless the sender writes a name or phone number; nothing else about them is stored."""
+    SOURCES = [('customer', 'Customer'), ('worker', 'Worker')]
+    TOPICS = [('food', 'Food'), ('service', 'Service'), ('cleanliness', 'Cleanliness'), ('price', 'Price'), ('other', 'Other')]
+    MESSAGE_MAX = 1000
+    CONTACT_MAX = 100
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    source = models.CharField(max_length=8, choices=SOURCES)
+    topic = models.CharField(max_length=12, choices=TOPICS, default='other')
+    rating = models.PositiveSmallIntegerField(null=True, blank=True, help_text='1 to 5 stars, optional')
+    message = models.TextField(max_length=MESSAGE_MAX)
+    contact = models.CharField(max_length=CONTACT_MAX, blank=True, help_text='Optional name or phone; empty means anonymous')
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']

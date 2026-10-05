@@ -30,4 +30,8 @@ export const STEPS = [
   ['Mauzo', 'Sales'], ['Matumizi', 'Expenses'], ['Malipo', 'Daily pay'],
   ['Hesabu ya pesa', 'Cash count'], ['Mahudhurio', 'Attendance'], ['Funga siku', 'Close the day'],
 ];
+export const OPINION_SOURCES = { customer: ['Mteja', 'Customer'], worker: ['Mfanyakazi', 'Worker'] };
+export const OPINION_TOPICS = {
+  food: ['Chakula', 'Food'], service: ['Huduma', 'Service'], cleanliness: ['Usafi', 'Cleanliness'], price: ['Bei', 'Price'], other: ['Mengineyo', 'Other'],
+};
 export const REMOVE_REASONS = { left: ['Ameacha kazi', 'Left the job'], ended: ['Mkataba umeisha', 'Contract ended'], other: ['Nyingine', 'Other'] };

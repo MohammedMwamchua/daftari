@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { ArrowRight, Eye, EyeSlash, LockKey, User } from '@phosphor-icons/react';
+import { ArrowRight, ChatCircleText, Eye, EyeSlash, LockKey, User } from '@phosphor-icons/react';
 import { api } from '../api.js';
 import { useI } from '../i18n.jsx';
 import { Btn } from '../components/ui.jsx';
@@ -37,7 +38,10 @@ export default function Login({ onDone }) {
 
   return (
     <div className="auth" style={{ '--backdrop': `url(${backdrop})` }}>
-      <div className="auth-tools"><LangSwitch /></div>
+      <div className="auth-tools">
+        <Link to="/toa-maoni" className="auth-feedback"><ChatCircleText size={18} weight="duotone" aria-hidden="true" /><span>{t('Toa maoni', 'Give feedback')}</span></Link>
+        <LangSwitch />
+      </div>
 
       <motion.main className="auth-frame" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.9, ease: EASE }}>
         <section className="auth-hero">

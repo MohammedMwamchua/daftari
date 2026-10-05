@@ -76,6 +76,14 @@ Pick a **month**, or pick a **single day** (*Siku moja*), and all four tabs foll
 
 The month and one-day reports can be downloaded as **PDF** or **Excel**, in either language. They include the daily pay and end with the money left (*pesa iliyobaki*).
 
+### Maoni (Feedback)
+Customers and workers can send their opinions through a public form at **`/toa-maoni`**, with no login. The sign-in screen links to it ("Toa maoni").
+- **The form:** customer or worker, an optional 1–5 star rating, an optional topic (food, service, cleanliness, price, other), the message, and an optional name or phone number.
+- **Anonymous by default:** nothing that identifies the sender is stored unless they write a name or number themselves.
+- **Spam protection:** messages are limited to 1,000 characters, one device can send at most 20 an hour, and a hidden field catches simple bots.
+
+The manager reads everything on the **Maoni** page: unread count in the menu, totals and the average star rating, filters (customers or workers, new only), mark as read or new, mark all read, and delete.
+
 ### Mipangilio (Settings)
 - the fixed **change float** kept in each till
 - **expense categories:** add, hide or show, or delete if never used
@@ -263,7 +271,7 @@ backend/                  Django 5 + Django REST Framework
   config/                 settings, URLs, WSGI
   core/
     models.py             Worker, Day, DaySection, Attendance, Expense, DailyPayment, Advance,
-                          Shortage, LeaveRecord, SalaryRun, SalaryLine, Settings, AuditLog
+                          Shortage, LeaveRecord, SalaryRun, SalaryLine, Settings, AuditLog, Opinion
     services.py           every business rule and money calculation
     views.py, urls.py     thin REST endpoints
     exports.py            PDF (reportlab) and Excel (openpyxl) reports
@@ -271,7 +279,8 @@ backend/                  Django 5 + Django REST Framework
     management/commands/backup_db.py   dated copies of the SQLite database
     tests.py              rule tests (cash difference, closing, salaries, reports)
 frontend/                 React 19 + Vite
-  src/pages/              Leo, Close (Funga siku), Workers, Money (Fedha), Settings, Login
+  src/pages/              Leo, Close (Funga siku), Workers, Money (Fedha), Opinions (Maoni), Settings,
+                          Login, OpinionForm (the public feedback form)
   src/components/         shared UI, charts, forms
   src/vocab.js, i18n.jsx  every label as a [Swahili, English] pair
 legacy-prototype/         the first in-memory design prototype, kept for reference
@@ -286,7 +295,7 @@ docker-compose.yml        PostgreSQL 16 for development
 
 ## API overview
 
-Every endpoint is under `/api/` and needs a `Bearer` token, except login.
+Every endpoint is under `/api/` and needs a `Bearer` token, except login and the public feedback form.
 
 | Area | Endpoints |
 |---|---|
@@ -297,6 +306,7 @@ Every endpoint is under `/api/` and needs a `Bearer` token, except login.
 | Money | `expenses/?month=`, `advances/`, `shortages/<id>/` |
 | Salaries | `GET salary/<yyyy-mm>/`, `POST …/approve/`, `POST salary-lines/<id>/paid/` |
 | Reports | `GET reports/month/<yyyy-mm>/` and `GET reports/day/<date>/`, with `?file=pdf\|xlsx&lang=sw\|en` to download |
+| Feedback | `POST opinions/submit/` (public, no token), `GET opinions/`, `GET opinions/unread/`, `POST opinions/read-all/`, `PATCH/DELETE opinions/<id>/` |
 
 ---
 

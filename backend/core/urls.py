@@ -42,4 +42,10 @@ urlpatterns = [
 
     path('reports/month/<str:ym>/', v.MonthReportView.as_view()),
     path('reports/day/<str:d>/', v.DayReportView.as_view()),
+
+    path('opinions/submit/', v.OpinionSubmitView.as_view()),
+    path('opinions/', v.OpinionsView.as_view()),
+    path('opinions/unread/', v.OpinionsUnreadView.as_view()),
+    path('opinions/read-all/', v.OpinionsReadAllView.as_view()),
+    path('opinions/<int:pk>/', v.OpinionView.as_view()),
 ]
