@@ -98,22 +98,22 @@ function CloseDay({ day, today }) {
   });
   const payMissingSource = () => d.payments.some((w) => form.pay[w.worker_id].amount && !form.pay[w.worker_id].from);
 
-  const props = { d, form, setForm, setSale, active, act, day, isToday, t, p };
+  const props = { d, form, setForm, setSale, active, act, day, isToday, go, t, p };
   const body = [
-    <SalesStep {...props} key="0" />, <ExpensesStep {...props} key="1" />, <PaymentsStep {...props} key="2" />, <CountStep {...props} key="3" />,
-    <AttendanceStep {...props} lockedAtt={lockedAtt} key="4" />,
-    <FinishStep {...props} lockedAtt={lockedAtt} go={go} href={href} salesBody={salesBody} payBody={payBody} payMissingSource={payMissingSource} countBody={countBody} attBody={attBody} key="5" />,
+    <AttendanceStep {...props} lockedAtt={lockedAtt} key="0" />, <SalesStep {...props} key="1" />, <ExpensesStep {...props} key="2" />,
+    <PaymentsStep {...props} key="3" />, <CountStep {...props} key="4" />,
+    <FinishStep {...props} lockedAtt={lockedAtt} href={href} salesBody={salesBody} payBody={payBody} payMissingSource={payMissingSource} countBody={countBody} attBody={attBody} key="5" />,
   ][step];
 
   const saveAndNext = async () => {
     try {
-      if (step === 0) await act.saveSales(day, salesBody());
-      if (step === 2) {
+      if (step === 0) await act.saveAttendance(day, attBody());
+      if (step === 1) await act.saveSales(day, salesBody());
+      if (step === 3) {
         if (payMissingSource()) { toast.warning(t('Chagua pesa za kila malipo zimetoka wapi.', 'Choose where each payment was paid from.')); return; }
         await act.savePayments(day, payBody());
       }
-      if (step === 3) await act.saveCount(day, countBody());
-      if (step === 4) await act.saveAttendance(day, attBody());
+      if (step === 4) await act.saveCount(day, countBody());
       mark(step);
       go(step + 1);
     } catch (e) { toast.error(t('Imeshindwa kuhifadhi. Jaribu tena.', 'Could not save. Try again.')); }
@@ -160,7 +160,7 @@ function CloseDay({ day, today }) {
   );
 }
 
-/* ------------------------------------------------------------ 1. sales */
+/* ------------------------------------------------------------ 2. sales */
 function SalesStep({ d, form, setSale, active, isToday, t, p }) {
   const cashiers = [...active].sort((a, b) => (b.role === 'keshia') - (a.role === 'keshia'));
   const total = sum(SEC, (s) => (form.sales[s].cash || 0) + (form.sales[s].mobile || 0));
@@ -187,7 +187,7 @@ function SalesStep({ d, form, setSale, active, isToday, t, p }) {
   );
 }
 
-/* ------------------------------------------------------------ 2. expenses */
+/* ------------------------------------------------------------ 3. expenses */
 function ExpensesStep({ d, act, day, isToday, t, p }) {
   const fail = useErr();
   return (
@@ -210,28 +210,46 @@ function ExpensesStep({ d, act, day, isToday, t, p }) {
   );
 }
 
-/* ------------------------------------------------------------ 3. daily pay */
+/* ------------------------------------------------------------ 4. daily pay */
+const AT_WORK = ['present', 'late'];
+
 const payFrom = (t, p) => [
   ['droo:banda', `${t('Droo ya', 'Till:')} ${p(SECTIONS.banda)}`], ['droo:mgahawa', `${t('Droo ya', 'Till:')} ${p(SECTIONS.mgahawa)}`],
   ['simu', p(PAID_FROM.simu)], ['other', p(PAID_FROM.other)],
 ];
 
-function PaymentsStep({ d, form, setForm, isToday, t, p }) {
+function PaymentsStep({ d, form, setForm, isToday, go, t, p }) {
   const set = (id, k, v) => setForm((f) => ({ ...f, pay: { ...f.pay, [id]: { ...f.pay[id], [k]: v } } }));
   const total = sum(d.payments, (w) => form.pay[w.worker_id].amount || 0);
+  // only workers marked present or late come to this step; anyone already paid stays in view, so the payment can be checked
+  const statusOf = (id) => form.att[id] ?? d.attendance.find((w) => w.worker_id === id)?.status;
+  const atWork = (id) => AT_WORK.includes(statusOf(id));
+  const rows = d.payments.filter((w) => atWork(w.worker_id) || form.pay[w.worker_id].amount);
+  const away = d.payments.length - rows.length;
   return (
     <>
       <header>
         <h2>{isToday ? t('Malipo ya leo', "Today's daily pay") : t('Malipo ya siku', "The day's daily pay")}</h2>
         <p className="muted">{t('Andika kiasi ulichomlipa kila mfanyakazi anayelipwa kwa siku. Ukiacha wazi, hakulipwa siku hii.', 'Enter what you paid each daily-paid worker. Leave it empty if they were not paid this day.')}</p>
       </header>
-      {d.payments.length === 0 ? <Empty>{t('Hakuna mfanyakazi anayelipwa kwa siku.', 'No daily-paid workers.')}</Empty> : (
+      {d.payments.length === 0 ? <Empty>{t('Hakuna mfanyakazi anayelipwa kwa siku.', 'No daily-paid workers.')}</Empty>
+        : rows.length === 0 ? (
+          <Empty>
+            {t('Hakuna mfanyakazi anayelipwa kwa siku aliyeandikwa "Yupo" au "Amechelewa".', 'No daily-paid worker is marked present or late.')}
+            <div style={{ marginTop: 10 }}><button type="button" className="btn-ghost" onClick={() => go(0)}>{t('Rudi kwenye mahudhurio', 'Back to attendance')}</button></div>
+          </Empty>
+        ) : (
         <div>
-          {d.payments.map((w) => {
+          {away ? <p className="muted" style={{ marginBottom: 6 }}>{t(`Wengine ${away} hawapo kazini, kwa hiyo hawaonyeshwi hapa.`, `${away} more are not at work, so they are not shown.`)}</p> : null}
+          {rows.map((w) => {
             const f = form.pay[w.worker_id];
             return (
               <div className="pay-row" key={w.worker_id}>
-                <div className="att-who"><Avatar name={w.name} /><span><strong>{w.name}</strong><small>{p(ROLES[w.role])} · {t(`Kiwango: ${tsh(w.rate)} / siku`, `Rate: ${tsh(w.rate)} / day`)}</small></span></div>
+                <div className="att-who"><Avatar name={w.name} /><span>
+                  <strong>{w.name}</strong>
+                  <small>{p(ROLES[w.role])} · {t(`Kiwango: ${tsh(w.rate)} / siku`, `Rate: ${tsh(w.rate)} / day`)}</small>
+                  {!atWork(w.worker_id) ? <small className="pay-away">{t('Hayupo kazini leo: angalia malipo haya', 'Not at work today: check this payment')}</small> : null}
+                </span></div>
                 <div>
                   <MoneyInput label={t('Kiasi alicholipwa', 'Amount paid')} value={f.amount} onChange={(v) => set(w.worker_id, 'amount', v)} />
                   {f.amount !== w.rate ? <button type="button" className="btn-ghost pay-fill" onClick={() => set(w.worker_id, 'amount', w.rate)}>{t(`Weka ${tsh(w.rate)}`, `Use ${tsh(w.rate)}`)}</button> : null}
@@ -250,7 +268,7 @@ function PaymentsStep({ d, form, setForm, isToday, t, p }) {
   );
 }
 
-/* ------------------------------------------------------------ 4. cash count */
+/* ------------------------------------------------------------ 5. cash count */
 const tillWages = (form, s) => sum(Object.values(form.pay), (x) => (x.from === `droo:${s}` ? x.amount || 0 : 0));
 
 export function cashMath(d, form, s) {
@@ -301,13 +319,13 @@ function CountStep({ d, form, setForm, active, t, p }) {
   );
 }
 
-/* ------------------------------------------------------------ 5. attendance */
+/* ------------------------------------------------------------ 1. attendance */
 function AttendanceStep({ d, form, setForm, lockedAtt, t, p }) {
   const open = d.attendance.filter((w) => !w.locked);
   const set = (id, v) => setForm((f) => ({ ...f, att: { ...f.att, [id]: v } }));
   return (
     <>
-      <header><h2>{t('Mahudhurio', 'Attendance')}</h2><p className="muted">{t('Huwezi kufunga siku hadi kila mfanyakazi aandikwe.', 'You cannot close the day until every worker is marked.')}</p></header>
+      <header><h2>{t('Mahudhurio', 'Attendance')}</h2><p className="muted">{t('Wanaolipwa kwa siku walio "Yupo" au "Amechelewa" ndio wataonekana kwenye hatua ya Malipo. Huwezi kufunga siku hadi kila mfanyakazi aandikwe.', 'Daily-paid workers marked present or late appear in the Malipo step. You cannot close the day until every worker is marked.')}</p></header>
       {lockedAtt.length ? (
         <div style={{ marginBottom: 12 }}>
           {lockedAtt.map((w) => (
@@ -333,7 +351,7 @@ function AttendanceStep({ d, form, setForm, lockedAtt, t, p }) {
 }
 
 /* ------------------------------------------------------------ 6. finish */
-function FinishStep({ d, form, active, act, day, isToday, t, p, lockedAtt, go, href, salesBody, payBody, payMissingSource, countBody, attBody }) {
+function FinishStep({ d, form, active, act, day, isToday, go, t, p, lockedAtt, href, salesBody, payBody, payMissingSource, countBody, attBody }) {
   const nav = useNavigate();
   const fail = useErr();
   const [busy, setBusy] = useState(false);
@@ -346,7 +364,7 @@ function FinishStep({ d, form, active, act, day, isToday, t, p, lockedAtt, go, h
   const close = async () => {
     setBusy(true);
     try {
-      if (payMissingSource()) { toast.warning(t('Chagua pesa za kila malipo zimetoka wapi.', 'Choose where each payment was paid from.')); go(2); return; }
+      if (payMissingSource()) { toast.warning(t('Chagua pesa za kila malipo zimetoka wapi.', 'Choose where each payment was paid from.')); go(3); return; }
       await act.saveSales(day, salesBody());
       await act.savePayments(day, payBody());
       await act.saveCount(day, countBody());
@@ -388,7 +406,7 @@ function FinishStep({ d, form, active, act, day, isToday, t, p, lockedAtt, go, h
               : <>{t('Chagua keshia wa siku kwa', 'Choose the cashier of the day for')} {p(SECTIONS[s])}.</>}
           </Callout>
         ))}
-        {missing.length ? <Callout tone="warn">{t('Hawajaandikwa:', 'Not marked yet:')} <strong>{missing.map((w) => w.name).join(', ')}</strong>. <button type="button" className="btn-ghost" onClick={() => go(4)}>{t('Nenda kwenye mahudhurio', 'Go to attendance')}</button></Callout> : null}
+        {missing.length ? <Callout tone="warn">{t('Hawajaandikwa:', 'Not marked yet:')} <strong>{missing.map((w) => w.name).join(', ')}</strong>. <button type="button" className="btn-ghost" onClick={() => go(0)}>{t('Nenda kwenye mahudhurio', 'Go to attendance')}</button></Callout> : null}
       </div>
       <div style={{ marginTop: 24 }}>
         <Btn className="btn-primary btn-block" style={{ minHeight: 56, fontSize: '1.05rem' }} loading={busy} disabled={missing.length > 0 || noCashier} onClick={close}>

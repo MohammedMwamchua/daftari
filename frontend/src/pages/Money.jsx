@@ -16,6 +16,23 @@ const diffCell = (n) => (n === 0 ? <span>0</span> : <span className={n < 0 ? 'ba
 const byCategory = (list, lang) => Object.values(list.reduce((a, e) => { (a[e.category] ||= { key: e.category, name: lang === 'sw' ? e.category_sw : e.category_en, amount: 0 }).amount += e.amount; return a; }, {})).sort((a, b) => b.amount - a.amount);
 const toTop = () => window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 
+/* The day's daily pay as one line in the day's expense list: the total all workers were handed, and from where. */
+const showsPay = (d) => d.payments.length > 0 || d.payments_total > 0;
+function PayTotalRow({ d }) {
+  const { t, p } = useI();
+  const paid = d.payments.filter((x) => x.amount);
+  const from = [...new Set(paid.map((x) => `${p(PAID_FROM[x.paid_from])}${x.section ? ` · ${p(SECTIONS[x.section])}` : ''}`))].join(', ');
+  const who = paid.length === 1 ? t('Mfanyakazi 1', '1 worker') : paid.length ? t(`Wafanyakazi ${paid.length}`, `${paid.length} workers`) : t('Hakuna aliyelipwa', 'Nobody was paid');
+  return (
+    <li className="pay-total-row">
+      <Chip tone="brass">{t('Malipo', 'Daily pay')}</Chip>
+      <span className="li-main"><strong>{t('Malipo ya siku', 'Daily pay')}</strong><span>{who}{from ? ` · ${from}` : ''}</span></span>
+      <span className="li-amt">{tsh(d.payments_total)}</span>
+      {!d.closed ? <Link to={`/funga/3?siku=${d.date}`} className="btn-ghost">{t('Badilisha', 'Change')}</Link> : null}
+    </li>
+  );
+}
+
 function MonthPick({ ym, setYm }) {
   const { t, monthName } = useI();
   const months = useMeta().data.months;
@@ -167,9 +184,14 @@ function DayPanel({ date }) {
         <DownloadButtons kind="day" id={d.date} />
       </div>
 
-      <div className="kpis">
+      <div className="kpis kpis-5">
         <div className="kpi accent"><small>{t('Mauzo', 'Sales')}</small><b>{tsh(d.sales_total)}</b></div>
         <div className="kpi"><small>{t('Matumizi', 'Expenses')}</small><b>{tsh(d.expenses_total)}</b></div>
+        <div className="kpi">
+          <small>{t('Malipo ya siku', 'Daily pay')}</small>
+          <b>{tsh(d.payments_total)}</b>
+          <small>{paid.length === 1 ? t('Mfanyakazi 1', '1 worker') : paid.length ? t(`Wafanyakazi ${paid.length}`, `${paid.length} workers`) : t('Hakuna aliyelipwa', 'Nobody paid')}</small>
+        </div>
         <div className="kpi"><small>{t('Baki baada ya matumizi na malipo', 'Left after expenses and daily pay')}</small><b style={{ color: left < 0 ? 'var(--bad)' : undefined }}>{left < 0 ? `− ${tsh(-left)}` : tsh(left)}</b></div>
         <div className="kpi"><small>{t('Tofauti ya pesa', 'Cash difference')}</small><b style={{ color: d.difference_total < 0 ? 'var(--bad)' : undefined }}>{d.has_count ? (d.difference_total === 0 ? tsh(0) : signed(d.difference_total)) : '—'}</b></div>
       </div>
@@ -185,8 +207,11 @@ function DayPanel({ date }) {
       <div className="two" style={{ marginTop: 0 }}>
         <section>
           <h3 style={{ marginBottom: 10 }}>{t('Matumizi ya siku', "The day's expenses")}</h3>
-          {d.expenses.length === 0 ? <Empty>{t('Hakuna matumizi siku hii.', 'No expenses this day.')}</Empty> : (
-            <ul className="list">{d.expenses.map((e) => <li key={e.id}><Chip>{t(e.category_sw, e.category_en)}</Chip><span className="li-main"><strong>{e.reason}</strong><span>{p(PAID_FROM[e.paid_from])}{e.section ? ` · ${p(SECTIONS[e.section])}` : ''}</span></span><span className="li-amt">{tsh(e.amount)}</span></li>)}</ul>
+          {d.expenses.length === 0 && !showsPay(d) ? <Empty>{t('Hakuna matumizi siku hii.', 'No expenses this day.')}</Empty> : (
+            <ul className="list">
+              {d.expenses.map((e) => <li key={e.id}><Chip>{t(e.category_sw, e.category_en)}</Chip><span className="li-main"><strong>{e.reason}</strong><span>{p(PAID_FROM[e.paid_from])}{e.section ? ` · ${p(SECTIONS[e.section])}` : ''}</span></span><span className="li-amt">{tsh(e.amount)}</span></li>)}
+              {showsPay(d) ? <PayTotalRow d={d} /> : null}
+            </ul>
           )}
           {paid.length ? (
             <>
@@ -251,6 +276,7 @@ function DayExpenses({ date }) {
   const fail = useErr();
   if (!d) return <PageSkeleton />;
   const till = sum(d.expenses.filter((e) => e.paid_from === 'droo'), (e) => e.amount);
+  const paidCount = d.payments.filter((x) => x.amount).length;
   const cats = byCategory(d.expenses, lang);
   return (
     <div style={{ opacity: isPlaceholderData ? 0.55 : 1 }}>
@@ -258,6 +284,11 @@ function DayExpenses({ date }) {
         <div className="kpi accent"><small>{t('Matumizi ya siku', "The day's expenses")}</small><b>{tsh(d.expenses_total)}</b></div>
         <div className="kpi"><small>{t('Idadi', 'Entries')}</small><b>{d.expenses.length}</b></div>
         <div className="kpi"><small>{t('Yaliyotoka droo', 'Paid from a till')}</small><b>{tsh(till)}</b></div>
+        <div className="kpi gold">
+          <small>{t('Malipo ya wafanyakazi', "Workers' daily pay")}</small>
+          <b>{tsh(d.payments_total)}</b>
+          <small>{paidCount === 1 ? t('Mfanyakazi 1 alilipwa', '1 worker paid') : paidCount ? t(`Wafanyakazi ${paidCount} walilipwa`, `${paidCount} workers paid`) : t('Hakuna aliyelipwa siku hii', 'Nobody was paid this day')}</small>
+        </div>
       </div>
       <div className="two" style={{ marginTop: 0 }}>
         <div className="stack">
@@ -267,7 +298,7 @@ function DayExpenses({ date }) {
         </div>
         <section>
           <div className="sec-head"><h2>{t('Matumizi ya siku hii', 'Expenses this day')}</h2></div>
-          {d.expenses.length === 0 ? <Empty>{t('Hakuna matumizi siku hii.', 'No expenses this day.')}</Empty> : (
+          {d.expenses.length === 0 && !showsPay(d) ? <Empty>{t('Hakuna matumizi siku hii.', 'No expenses this day.')}</Empty> : (
             <ul className="list">
               {d.expenses.map((e) => (
                 <li key={e.id}>
@@ -277,6 +308,7 @@ function DayExpenses({ date }) {
                   {!d.closed ? <button type="button" className="icon-plain" aria-label={t('Futa', 'Delete')} onClick={() => act.delExpense(e.id).catch(fail)}><Trash size={18} weight="duotone" /></button> : null}
                 </li>
               ))}
+              {showsPay(d) ? <PayTotalRow d={d} /> : null}
             </ul>
           )}
         </section>

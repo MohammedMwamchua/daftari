@@ -514,6 +514,9 @@ a { color: inherit; }
 .pay-row:last-child { border-bottom: 0; }
 .pay-row .att-who { padding-top: 30px; }
 .pay-fill { margin-top: 6px; padding: 0; font-size: 0.84rem; }
+.pay-away { color: var(--warn) !important; font-weight: 600; }
+/* the day's daily pay, as one line in the day's expense list */
+.list > li.pay-total-row { background: color-mix(in srgb, var(--brass-500) 7%, var(--surface)); box-shadow: inset 3px 0 0 var(--brass-500); }
 @media (max-width: 760px) { .pay-row { grid-template-columns: minmax(0, 1fr); gap: 10px; } .pay-row .att-who { padding-top: 0; } }
 .att-btns { display: flex; gap: 6px; }
 .att-btns button { border: 1.5px solid var(--line); background: var(--surface); padding: 9px 14px; border-radius: 12px; font-weight: 600; font-size: 0.88rem; min-height: 42px; transition: all 0.2s var(--ease); }
@@ -667,6 +670,10 @@ a { color: inherit; }
 /* ---------------------------------------------------------------- opinions inbox */
 .kpi b svg { vertical-align: -2px; }
 .op-kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } /* short numbers: two per row on a phone */
+.kpis-5 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); } /* five boxes stay in one row on a laptop */
+/* in a narrow box the amount shrinks to fit (TSh 1,110,000 on a 1366px laptop or a phone), never cut off */
+.kpis-5 .kpi { container-type: inline-size; }
+.kpis-5 .kpi b { font-size: clamp(1.1rem, 15cqi, 1.75rem); }
 .op-filters { margin: 0 0 18px; }
 .op-more { display: flex; justify-content: center; margin-top: 18px; }
 .op-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }

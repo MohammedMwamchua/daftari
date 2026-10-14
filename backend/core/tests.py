@@ -560,6 +560,17 @@ class PasswordStorageTest(APITestCase):
         self.assertEqual(self.client.post('/api/auth/login/', {'username': 'meneja', 'password': 'wrong'}, format='json').status_code, 401)
 
 
+class WizardOrderTest(APITestCase):
+    def test_saved_steps_follow_the_attendance_first_order(self):
+        from importlib import import_module
+        m = import_module('core.migrations.0007_attendance_first')
+        old = {'Mauzo': 0, 'Matumizi': 1, 'Malipo': 2, 'Hesabu ya pesa': 3, 'Mahudhurio': 4, 'Funga siku': 5}
+        new = {'Mahudhurio': 0, 'Mauzo': 1, 'Matumizi': 2, 'Malipo': 3, 'Hesabu ya pesa': 4, 'Funga siku': 5}
+        for name, i in old.items():
+            self.assertEqual(m.OLD_TO_NEW[i], new[name], name)
+        self.assertEqual([m.NEW_TO_OLD[m.OLD_TO_NEW[i]] for i in range(6)], list(range(6)))  # and back again
+
+
 class ContentSecurityPolicyTest(APITestCase):
     def test_the_inline_script_is_allowed_by_the_hash_browsers_compute(self):
         import base64

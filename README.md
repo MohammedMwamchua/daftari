@@ -45,11 +45,11 @@ The home screen shows:
 ### Funga siku (Close the day)
 A six-step wizard, done once per day:
 
-1. **Mauzo (Sales):** cash and mobile money totals for each section, plus the cashier of the day.
-2. **Matumizi (Expenses):** what was spent, from which source (till, mobile money or other), and for which section.
-3. **Malipo (Daily pay):** the amount handed to each daily-paid worker that day, typed in by hand, and where it was paid from. Leaving it empty means the worker was not paid that day.
-4. **Hesabu ya pesa (Cash count):** the manager counts each till. The app shows what *should* be there and the difference.
-5. **Mahudhurio (Attendance):** each worker is marked present, late or absent. Days off and leave are filled in automatically.
+1. **Mahudhurio (Attendance):** each worker is marked present, late or absent. Days off and leave are filled in automatically.
+2. **Mauzo (Sales):** cash and mobile money totals for each section, plus the cashier of the day.
+3. **Matumizi (Expenses):** what was spent, from which source (till, mobile money or other), and for which section.
+4. **Malipo (Daily pay):** the amount handed to each daily-paid worker who is **present or late** that day, typed in by hand, and where it was paid from. Leaving it empty means the worker was not paid that day.
+5. **Hesabu ya pesa (Cash count):** the manager counts each till. The app shows what *should* be there and the difference.
 6. **Funga siku (Close):** a summary. Closing locks the day, and any shortage goes straight onto the cashier's account.
 
 A **"Tarehe ya kujaza" (day to fill)** field lets the manager fill and close earlier days that were missed. After an earlier day is closed, the wizard moves on to the next day.
@@ -70,7 +70,7 @@ Pick a **month**, or pick a **single day** (*Siku moja*), and all four tabs foll
 | Tab | Whole month | One day |
 |---|---|---|
 | **Mauzo** (Sales) | Totals, cash/mobile split, sales-by-day chart, and a table of every day with its sales, expenses and cash difference | That day's sales, expenses, cash difference, shortages, advances and attendance, with the month's totals below |
-| **Matumizi** (Expenses) | Month total, totals by category, latest expenses | That day's expenses, plus a form to add one if the day is still open |
+| **Matumizi** (Expenses) | Month total, totals by category, latest expenses | That day's expenses and the workers' daily pay total, plus a form to add an expense if the day is still open |
 | **Mishahara** (Salaries) | The salary list of monthly workers: approve it, mark each line paid, and set how special days count. Daily-paid workers are listed separately with what they were paid. | What each worker earned that day |
 | **Ripoti** (Reports) | Money left (profit) for the month | Money left (profit) up to that day (see below) |
 

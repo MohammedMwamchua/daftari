@@ -26,9 +26,10 @@ export const STATUS = {
   dayoff: ['Siku ya mapumziko', 'Day off', 'info'], permission: ['Ruhusa', 'Permission', 'info'], holiday: ['Likizo', 'Holiday', 'info'],
 };
 export const PAID_FROM = { droo: ['Droo', 'Till'], simu: ['Pesa za simu', 'Mobile money'], other: ['Nyingine', 'Other'] };
+/* Attendance first: only daily-paid workers marked present or late appear in the Malipo step. */
 export const STEPS = [
-  ['Mauzo', 'Sales'], ['Matumizi', 'Expenses'], ['Malipo', 'Daily pay'],
-  ['Hesabu ya pesa', 'Cash count'], ['Mahudhurio', 'Attendance'], ['Funga siku', 'Close the day'],
+  ['Mahudhurio', 'Attendance'], ['Mauzo', 'Sales'], ['Matumizi', 'Expenses'], ['Malipo', 'Daily pay'],
+  ['Hesabu ya pesa', 'Cash count'], ['Funga siku', 'Close the day'],
 ];
 export const OPINION_SOURCES = { customer: ['Mteja', 'Customer'], worker: ['Mfanyakazi', 'Worker'] };
 export const OPINION_TOPICS = {

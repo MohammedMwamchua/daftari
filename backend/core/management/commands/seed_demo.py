@@ -102,7 +102,7 @@ class Command(BaseCommand):
         Expense.objects.create(date=today, category=cats['malighafi'], amount=84000, reason='Viazi na mafuta ya kupikia', paid_from='simu')
         for w, st in ((ws[0], 'present'), (ws[1], 'late'), (ws[2], 'present')):
             Attendance.objects.get_or_create(worker=w, date=today, defaults={'status': st})
-        day.visited = [0, 1]
+        day.visited = [1, 2]  # sales and expenses are in; attendance, daily pay and the cash count are still to do
         day.save()
         LeaveRecord.objects.create(worker=ws[5], kind='permission', start=today, end=today, reason='Shughuli ya familia')
         LeaveRecord.objects.create(worker=ws[3], kind='holiday', start=today + timedelta(days=5), end=today + timedelta(days=8), reason='Kwenda kijijini')
