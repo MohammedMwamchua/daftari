@@ -326,10 +326,9 @@ def line_json(ln):
             'base': ln.base, 'advances': ln.advances, 'shortages': ln.shortages, 'net': ln.net, 'stats': ln.stats}
 
 
-def salary_list(ym):
-    """The month's salary list: every pay month whose pay day falls in ym. Each line is 'approved' (figures
-    frozen), 'due' (its pay day has come, so it can be approved) or 'upcoming' (figures so far)."""
-    first, last = month_bounds(ym)
+def salary_lines(ym):
+    """Every pay month whose pay day falls in ym, in pay-day order. Each is 'approved' (figures frozen), 'due'
+    (its pay day has come, so it can be approved) or 'upcoming' (figures so far)."""
     rules = Settings.load().rules
     approved = list(SalaryLine.objects.filter(month=ym).select_related('worker'))
     done = {(ln.worker_id, ln.period_start) for ln in approved}
@@ -342,14 +341,27 @@ def salary_list(ym):
                           **pay_month_json(pm), 'status': 'due' if pm.pay_day <= today() else 'upcoming', 'paid': False,
                           **pay_month_figures(w, pm, rules, book)})
     lines.sort(key=lambda r: (r['pay_day'], r['worker']['name']))
+    return lines
 
-    # monthly-paid workers with nothing on this list yet: when their first pay day comes
+
+def salaries_later(ym, lines):
+    """Monthly-paid workers with no salary paid in ym (most often new ones): their next pay month and pay day."""
+    last = month_bounds(ym)[1]
     on_list = {r['worker']['id'] for r in lines}
     later = []
     for w in Worker.objects.filter(pay_type='monthly', active=True, joined_on__lte=last).exclude(id__in=on_list).order_by('name'):
         pm = pay_month_on(w, last)
         if pm:
             later.append({'worker': worker_brief(w), **pay_month_json(pm)})
+    return later
+
+
+def salary_list(ym):
+    """The month's salary list: its pay months by pay day, who is paid later, daily pay and the deductions."""
+    first, last = month_bounds(ym)
+    lines = salary_lines(ym)
+    later = salaries_later(ym, lines)
+    rules = Settings.load().rules
 
     # the deductions this list takes: shortages inside each pay month on it; daily-paid workers' of the calendar month
     spans = [(r['worker']['id'], date.fromisoformat(r['start']), date.fromisoformat(r['end']), r['status'] == 'approved')
@@ -370,6 +382,17 @@ def salary_list(ym):
         'total_advances': sum(r['advances'] for r in lines), 'total_shortages': sum(r['shortages'] for r in lines),
         'shortages': shortages,
     }
+
+
+def salaries_by(ym, d):
+    """The monthly salaries of month ym as the profit counts them on day d: each comes off on the worker's pay
+    day, named. What it costs is its net pay plus the advances already handed out."""
+    lines = salary_lines(ym)
+    rows = [{'worker': l['worker'], 'start': l['start'], 'end': l['end'], 'pay_day': l['pay_day'],
+             'amount': l['net'] + l['advances'], 'taken': l['pay_day'] <= d.isoformat()} for l in lines]
+    taken = sum(r['amount'] for r in rows if r['taken'])
+    return taken, {'salaries_total': taken, 'salaries': rows, 'salaries_pending': sum(r['amount'] for r in rows) - taken,
+                   'salaries_next': salaries_later(ym, lines)}
 
 
 @transaction.atomic
@@ -635,8 +658,7 @@ def month_report(ym):
         c = by_cat.setdefault(e.category.key, {'key': e.category.key, 'name_sw': e.category.name_sw,
                                               'name_en': e.category.name_en, 'amount': 0})
         c['amount'] += e.amount
-    sal = salary_list(ym)
-    salaries_cost = sal['total_net'] + sal['total_advances']  # what salaries cost: net pay plus advances already handed out
+    salaries, sal = salaries_by(ym, min(today(), last))
     exp_total = sum(spent.values())
     pay_total = sum(wages.values())
     return {
@@ -645,8 +667,8 @@ def month_report(ym):
         'mgahawa': sum(r['mgahawa']['cash'] + r['mgahawa']['mobile'] for r in days),
         'average': round(total / len(selling)) if selling else 0, 'best': best,
         'expenses_total': exp_total, 'expenses_by_category': sorted(by_cat.values(), key=lambda c: -c['amount']),
-        'payments_total': pay_total, 'salaries_total': salaries_cost, 'profit': total - exp_total - pay_total - salaries_cost,
-        'daily_paid': sal['daily'],
+        'payments_total': pay_total, **sal, 'profit': total - exp_total - pay_total - salaries,
+        'daily_paid': daily_paid(ym),
         'payment_rows': [{**payment_json(x), 'worker_name': x.worker.name}
                          for x in DailyPayment.objects.filter(date__range=(first, last)).select_related('worker')],
         'diff_total': sum(r['diff'] for r in days),
@@ -684,11 +706,12 @@ def day_pay(d):
 
 def day_report(d, p=None):
     """Profit as the manager wants it on a given day: sales, expenses and daily pay added up from the 1st of
-    the month to that day, minus the whole month's (monthly) salaries. `p` is day_payload(d), if already built."""
+    the month to that day, and each monthly salary whose pay day has come. `p` is day_payload(d), if already built."""
     p = p or day_payload(d)
     ym = ym_of(d)
     first, _ = month_bounds(ym)
     month = month_report(ym)
+    salaries, sal = salaries_by(ym, d)
     rows = sorted((r for r in month['days'] if r['date'] <= p['date']), key=lambda r: r['date'])
     running, sold, spent, wages = [], 0, 0, 0
     for r in rows:
@@ -708,7 +731,7 @@ def day_report(d, p=None):
         'mobile': sum(r[s]['mobile'] for r in rows for s in SECTIONS),
         'sales': {s: sum(r[s]['cash'] + r[s]['mobile'] for r in rows) for s in SECTIONS},
         'expenses_total': spent, 'expenses_by_category': sorted(by_cat.values(), key=lambda c: -c['amount']),
-        'payments_total': wages, 'salaries_total': month['salaries_total'], 'profit': sold - spent - wages - month['salaries_total'],
+        'payments_total': wages, **sal, 'profit': sold - spent - wages - salaries,
         'day_sales': p['sales_total'], 'day_expenses': p['expenses_total'], 'day_payments': p['payments_total'], 'running': running,
     }
 

@@ -148,13 +148,13 @@ net pay = base pay − advances − shortages that were not waived   (never belo
 profit = sales − expenses − daily pay − (net salaries + advances)
 ```
 
-During the month, profit looks low, because monthly salaries count in full from the first day.
+Each monthly salary comes off the profit on the worker's own pay day, and the report lists it by name: someone who starts on 5 October comes off on 5 November, for 5 October to 4 November. Before a pay day the report shows that salary and the day it comes off.
 
 **Profit up to a chosen day** (the Ripoti tab with one day selected):
 
 ```
 profit = sales from the 1st to that day − expenses from the 1st to that day
-         − daily pay from the 1st to that day − the whole month's salaries
+         − daily pay from the 1st to that day − each monthly salary whose pay day is up to that day
 ```
 
 A table shows how sales, expenses and daily pay add up day by day. On the last day of the month this equals the month's profit.

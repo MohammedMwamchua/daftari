@@ -237,17 +237,31 @@ class RulesTest(APITestCase):
         for d, banda, spend in ((d1, 100000, 20000), (d2, 60000, 5000)):
             self.client.put(f'/api/days/{d}/sales/', {'banda': {'cash': banda, 'mobile': 0}, 'mgahawa': {'cash': 40000, 'mobile': 10000}}, format='json')
             self.client.post('/api/expenses/', {'category': 'gesi', 'amount': spend, 'reason': 'gas', 'paid_from': 'simu', 'date': d}, format='json')
-        salaries = self.client.get(f'/api/reports/month/{svc.ym_of(first)}/').data['salaries_total']
+        # the cashier's salary comes off last month's profit on their pay day, by name
+        month = self.client.get(f'/api/reports/month/{svc.ym_of(first)}/').data
+        [sal] = month['salaries']
+        self.assertEqual((sal['worker']['name'], sal['taken'], month['salaries_total']), ('Rehema', True, sal['amount']))
+        self.assertGreater(sal['amount'], 0)
+        taken_by = lambda d: sal['amount'] if sal['pay_day'] <= d else 0
 
         r = self.client.get(f'/api/reports/day/{d1}/').data
-        self.assertEqual((r['total'], r['expenses_total'], r['profit']), (150000, 20000, 150000 - 20000 - salaries))
+        self.assertEqual((r['total'], r['expenses_total'], r['salaries_total']), (150000, 20000, taken_by(d1)))
+        self.assertEqual(r['profit'], 150000 - 20000 - taken_by(d1))
 
-        # on the 2nd: sales of the 1st + 2nd, expenses of the 1st + 2nd, minus the whole month's salaries
+        # on the 2nd: sales of the 1st + 2nd, expenses of the 1st + 2nd
         r = self.client.get(f'/api/reports/day/{d2}/').data
-        self.assertEqual((r['from'], r['total'], r['expenses_total'], r['salaries_total']), (d1, 260000, 25000, salaries))
-        self.assertEqual(r['profit'], 260000 - 25000 - salaries)
+        self.assertEqual((r['from'], r['total'], r['expenses_total'], r['salaries_total']), (d1, 260000, 25000, taken_by(d2)))
+        self.assertEqual(r['profit'], 260000 - 25000 - taken_by(d2))
         self.assertEqual((r['day_sales'], r['day_expenses']), (110000, 5000))
         self.assertEqual([(x['date'], x['sales_to_date'], x['expenses_to_date']) for x in r['running']], [(d1, 150000, 20000), (d2, 260000, 25000)])
+
+        # on the pay day it comes off; the day before, it is listed with the day it will
+        on = self.client.get(f'/api/reports/day/{sal["pay_day"]}/').data
+        self.assertEqual((on['salaries_total'], on['salaries'][0]['taken']), (sal['amount'], True))
+        before = date.fromisoformat(sal['pay_day']) - timedelta(days=1)
+        if svc.ym_of(before) == svc.ym_of(first):
+            r = self.client.get(f'/api/reports/day/{before}/').data
+            self.assertEqual((r['salaries_total'], r['salaries_pending'], r['salaries'][0]['taken']), (0, sal['amount'], False))
 
     def test_daily_payments(self):
         ym = svc.ym_of(self.today)
@@ -441,6 +455,20 @@ class PayMonthsTest(APITestCase):
         # the special-day rules can still change: they apply to salaries not yet approved
         r = self.client.patch('/api/meta/', {'rules': {'permission': {'cut': False}}}, format='json')
         self.assertEqual(r.status_code, 200)
+
+    def test_each_salary_comes_off_on_its_pay_day_by_name(self):
+        w = self.monthly(date(2025, 3, 12))
+        march = self.client.get('/api/reports/month/2025-03/').data
+        self.assertEqual((march['salaries_total'], march['salaries']), (0, []))  # first paid on 12 April
+        self.assertEqual([(x['worker']['id'], x['pay_day']) for x in march['salaries_next']], [(w.id, '2025-04-12')])
+
+        r = self.client.get('/api/reports/day/2025-04-11/').data
+        self.assertEqual((r['salaries_total'], r['salaries_pending']), (0, 300000))
+        r = self.client.get('/api/reports/day/2025-04-12/').data
+        self.assertEqual(r['salaries_total'], 300000)
+        self.assertEqual([(x['worker']['name'], x['pay_day'], x['amount'], x['taken']) for x in r['salaries']],
+                         [(w.name, '2025-04-12', 300000, True)])
+        self.assertEqual(self.client.get('/api/reports/month/2025-04/').data['profit'], -300000)
 
     def test_moving_to_a_salary_starts_the_pay_months_that_day(self):
         today = svc.today()

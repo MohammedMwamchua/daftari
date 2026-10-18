@@ -115,16 +115,29 @@ def _paid_from(x, lang):
     return label
 
 
-def _profit_rows(lang, sales, spent, paid, salaries, profit, span=''):
+def _salary_rows(r, lang):
+    """One row per monthly salary: taken off on the worker's pay day, or 0 with the day it comes off."""
+    t = T(lang)
+    rows = []
+    for x in r['salaries']:
+        name, on = x['worker']['name'], short(x['pay_day'], lang)
+        if x['taken']:
+            rows.append((t(f'Mshahara wa {name} ({on})', f"{name}'s salary ({on})"), x['amount']))
+        else:
+            rows.append((t(f'Mshahara wa {name} (hukatwa {on})', f"{name}'s salary (comes off on {on})"), 0))
+    return rows or [(t('Mishahara', 'Salaries'), 0)]
+
+
+def _profit_rows(lang, r, span=''):
     """The profit sum, line by line, exactly as the Ripoti screen works it out."""
     t = T(lang)
     span = f' ({span})' if span else ''
     return [[t('Hesabu ya faida', 'Profit'), 'TSh'],
-            [t('Mauzo', 'Sales') + span, n(sales)],
-            [t('- Matumizi', '- Expenses') + span, n(spent)],
-            [t('- Malipo ya siku', '- Daily pay') + span, n(paid)],
-            [t('- Mishahara ya mwezi mzima', "- The whole month's salaries"), n(salaries)],
-            [t('Pesa iliyobaki (faida)', 'Money left (profit)'), signed(profit) if profit < 0 else n(profit)]]
+            [t('Mauzo', 'Sales') + span, n(r['total'])],
+            [t('- Matumizi', '- Expenses') + span, n(r['expenses_total'])],
+            [t('- Malipo ya siku', '- Daily pay') + span, n(r['payments_total'])],
+            *[['- ' + label, n(amount)] for label, amount in _salary_rows(r, lang)],
+            [t('Pesa iliyobaki (faida)', 'Money left (profit)'), signed(r['profit']) if r['profit'] < 0 else n(r['profit'])]]
 
 
 def month_pdf(r, lang):
@@ -138,7 +151,7 @@ def month_pdf(r, lang):
             (t('Banda', 'Stall'), f'TSh {n(r["banda"])}'), (t('Mgahawa', 'Restaurant'), f'TSh {n(r["mgahawa"])}'),
             (t('Siku bora', 'Best day'), f'{short(best["date"], lang)}: {n(best["total"])}' if best else '-'),
             (t('Pesa iliyobaki (faida)', 'Money left (profit)'), f'TSh {signed(r["profit"]) if r["profit"] < 0 else n(r["profit"])}')]), Spacer(1, 6 * mm),
-        _table(_profit_rows(lang, r['total'], r['expenses_total'], r['payments_total'], r['salaries_total'], r['profit']),
+        _table(_profit_rows(lang, r),
                [120 * mm, 58 * mm], 1, True), Spacer(1, 6 * mm),
         _h2(t('Kila siku', 'Every day'))]
     rows = [[t('Tarehe', 'Date'), t('Siku', 'Day'), t('Banda', 'Stall'), t('Mgahawa', 'Restaurant'), t('Mauzo', 'Sales'),
@@ -194,7 +207,7 @@ def day_pdf(p, rep, lang):
     # the Ripoti figures: sales, expenses and daily pay added up from the 1st, minus the month's salaries
     span = f'{short(rep["from"], lang)} - {short(rep["date"], lang)}'
     story += [_h2(t(f'Pesa iliyobaki (faida) hadi siku hii ({span})', f'Money left (profit) up to this day ({span})')),
-              _table(_profit_rows(lang, rep['total'], rep['expenses_total'], rep['payments_total'], rep['salaries_total'], rep['profit'], span),
+              _table(_profit_rows(lang, rep, span),
                      [120 * mm, 58 * mm], 1, True)]
     if rep['running']:
         run = [[t('Tarehe', 'Date'), t('Mauzo', 'Sales'), t('Matumizi', 'Expenses'), t('Malipo', 'Daily pay'),
@@ -240,14 +253,14 @@ def _xlsx(wb):
     return buf.getvalue()
 
 
-def _profit_sheet(wb, lang, sales, spent, paid, salaries, profit, span=''):
+def _profit_sheet(wb, lang, r, span=''):
     t = T(lang)
     span = f' ({span})' if span else ''
     ws = wb.create_sheet(t('Faida', 'Profit'))
     _sheet(ws, [t('Hesabu ya faida', 'Profit'), 'TSh'], [
-        [t('Mauzo', 'Sales') + span, sales], [t('Matumizi', 'Expenses') + span, -spent],
-        [t('Malipo ya siku', 'Daily pay') + span, -paid], [t('Mishahara ya mwezi mzima', "The whole month's salaries"), -salaries],
-        [t('Pesa iliyobaki (faida)', 'Money left (profit)'), profit]], [44, 18], total=True)
+        [t('Mauzo', 'Sales') + span, r['total']], [t('Matumizi', 'Expenses') + span, -r['expenses_total']],
+        [t('Malipo ya siku', 'Daily pay') + span, -r['payments_total']], *[[label, -amount] for label, amount in _salary_rows(r, lang)],
+        [t('Pesa iliyobaki (faida)', 'Money left (profit)'), r['profit']]], [52, 18], total=True)
 
 
 def month_xlsx(r, lang):
@@ -263,7 +276,7 @@ def month_xlsx(r, lang):
                 t('Mgahawa: pesa za simu', 'Restaurant: mobile'), t('Jumla ya mauzo', 'Total sales'),
                 t('Matumizi', 'Expenses'), t('Malipo ya siku', 'Daily pay'),
                 t('Tofauti ya pesa', 'Cash difference')], rows, [14, 14, 18, 18, 20, 20, 18, 16, 16, 16], total=True)
-    _profit_sheet(wb, lang, r['total'], r['expenses_total'], r['payments_total'], r['salaries_total'], r['profit'])
+    _profit_sheet(wb, lang, r)
     pay = wb.create_sheet(t('Malipo ya siku', 'Daily pay'))
     prow = [[x['date'], x['worker_name'], _paid_from(x, lang), x['amount']] for x in sorted(r['payment_rows'], key=lambda x: (x['date'], x['worker_name']))]
     prow.append([t('JUMLA', 'TOTAL'), '', '', r['payments_total']])
@@ -290,7 +303,7 @@ def day_xlsx(p, rep, lang):
              [t('Baki ya siku (mauzo - matumizi - malipo)', 'Left this day (sales - expenses - daily pay)'), '', p['sales_total'] - p['expenses_total'] - p['payments_total']]]
     _sheet(ws, [t('Sehemu', 'Section'), t('Maelezo', 'Detail'), 'TSh'], rows, [26, 44, 16], total=True)
     span = f'{short(rep["from"], lang)} - {short(rep["date"], lang)}'
-    _profit_sheet(wb, lang, rep['total'], rep['expenses_total'], rep['payments_total'], rep['salaries_total'], rep['profit'], span)
+    _profit_sheet(wb, lang, rep, span)
     run = wb.create_sheet(t('Kila siku', 'Every day'))
     _sheet(run, [t('Tarehe', 'Date'), t('Mauzo', 'Sales'), t('Matumizi', 'Expenses'), t('Malipo ya siku', 'Daily pay'),
                  t('Mauzo jumla', 'Sales so far'), t('Matumizi jumla', 'Expenses so far'), t('Malipo jumla', 'Pay so far')],

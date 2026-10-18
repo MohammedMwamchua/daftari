@@ -359,7 +359,28 @@ function DaySalaries({ date, wholeMonth }) {
   );
 }
 
-/* Profit up to the chosen day: sales and expenses added from the 1st of the month, minus the whole month's salaries. */
+/* Each monthly salary in a profit report, by name: taken off on the worker's pay day, or the day it will be. */
+function SalaryTakes({ r }) {
+  const { t, fmtDate } = useI();
+  if (!r.salaries.length && !r.salaries_next.length) return null;
+  const whose = (w) => <span>{t(<>Mshahara wa <Name>{w.name}</Name></>, <><Name>{w.name}</Name>&rsquo;s salary</>)}</span>;  // one line in the label
+  return (
+    <div className="ledger flat sal-takes">
+      {r.salaries.map((x) => (
+        <Leader key={`${x.worker.id}-${x.start}`} tone={x.taken ? 'bad' : undefined} label={whose(x.worker)}
+          sub={x.taken ? t(`Umekatwa ${fmtDate(x.pay_day)}, siku yake ya mshahara`, `Taken off on ${fmtDate(x.pay_day)}, their pay day`)
+            : t(`Utakatwa ${fmtDate(x.pay_day)}, siku yake ya mshahara`, `Comes off on ${fmtDate(x.pay_day)}, their pay day`)}
+          value={x.taken ? `− ${tsh(x.amount)}` : tsh(x.amount)} />
+      ))}
+      {r.salaries_next.map((x) => (
+        <Leader key={`n${x.worker.id}`} label={whose(x.worker)} value={t('Bado', 'Not yet')}
+          sub={t(`Siku yake ya mshahara: ${fmtDate(x.pay_day)}`, `Pay day: ${fmtDate(x.pay_day)}`)} />
+      ))}
+    </div>
+  );
+}
+
+/* Profit up to the chosen day: sales and expenses added from the 1st of the month, and each monthly salary whose pay day has come. */
 function DayReport({ date }) {
   const { t, lang, longDate, fmtDate, fmtRange, dayShort } = useI();
   const { data: r, isPlaceholderData } = useDayReport(date);
@@ -376,7 +397,8 @@ function DayReport({ date }) {
         </div>
         <div className="profit">
           <p className="display amount-lg" style={{ fontSize: 'clamp(2.2rem, 1.5rem + 3vw, 3.4rem)', color: good ? 'var(--good)' : 'var(--bad)' }}><span className="cur">TSh</span>{good ? '' : '−'}<CountUp value={Math.abs(r.profit)} /></p>
-          <p className="eq"><span>{tsh(r.total)} {t(`mauzo (${span})`, `sales (${span})`)}</span> − <span>{tsh(r.expenses_total)} {t(`matumizi (${span})`, `expenses (${span})`)}</span> − <span>{tsh(r.payments_total)} {t(`malipo ya siku (${span})`, `daily pay (${span})`)}</span> − <span>{tsh(r.salaries_total)} {t('mishahara ya mwezi mzima', "the whole month's salaries")}</span></p>
+          <p className="eq"><span>{tsh(r.total)} {t(`mauzo (${span})`, `sales (${span})`)}</span> − <span>{tsh(r.expenses_total)} {t(`matumizi (${span})`, `expenses (${span})`)}</span> − <span>{tsh(r.payments_total)} {t(`malipo ya siku (${span})`, `daily pay (${span})`)}</span> − <span>{tsh(r.salaries_total)} {t('mishahara', 'salaries')}</span></p>
+          <SalaryTakes r={r} />
         </div>
       </Rise>
       <div className="two" style={{ marginTop: 0 }}>
@@ -621,12 +643,12 @@ function ReportsTab({ ym }) {
   const good = r.profit >= 0;
   return (
     <>
-      {ym === meta.today.slice(0, 7) ? <div style={{ marginBottom: 16 }}><Callout tone="info">{t('Mwezi haujaisha. Mishahara ya mwezi mzima huhesabiwa tangu siku ya kwanza, kwa hiyo faida huonekana ndogo hadi mauzo yafikie.', 'The month is not over. Monthly salaries count in full from day one, so profit looks low until sales catch up.')}</Callout></div> : null}
       <Rise className="panel" style={{ marginBottom: 22 }}>
         <div className="panel-head"><div><h2>{t('Pesa iliyobaki (faida) ya mwezi', 'Money left (profit) for the month')}</h2><p className="muted">{monthName(ym)}</p></div><DownloadButtons kind="month" id={ym} /></div>
         <div className="profit">
           <p className="display amount-lg" style={{ fontSize: 'clamp(2.2rem, 1.5rem + 3vw, 3.4rem)', color: good ? 'var(--good)' : 'var(--bad)' }}><span className="cur">TSh</span>{good ? '' : '−'}<CountUp value={Math.abs(r.profit)} /></p>
           <p className="eq"><span>{tsh(r.total)} {t('mauzo', 'sales')}</span> − <span>{tsh(r.expenses_total)} {t('matumizi', 'expenses')}</span> − <span>{tsh(r.payments_total)} {t('malipo ya kila siku', 'daily pay')}</span> − <span>{tsh(r.salaries_total)} {t('mishahara', 'salaries')}</span></p>
+          <SalaryTakes r={r} />
         </div>
       </Rise>
       <div className="two" style={{ marginTop: 0 }}>
