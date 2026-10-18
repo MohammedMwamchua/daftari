@@ -8,7 +8,7 @@ import { useActions, useDay, useErr, useMeta, useWorkers } from '../hooks.js';
 import { useI } from '../i18n.jsx';
 import { addDays, num, sum, tsh } from '../format.js';
 import { PAID_FROM, ROLES, SEC, SECTIONS, STEPS } from '../vocab.js';
-import { Avatar, Btn, Callout, Chip, CountUp, Empty, Leader, Money, MoneyInput, Page, PageSkeleton, SelectField, StatusChip, TextField } from '../components/ui.jsx';
+import { Avatar, Btn, Callout, Chip, CountUp, Empty, Leader, Money, MoneyInput, Name, Page, PageSkeleton, SelectField, StatusChip, TextField } from '../components/ui.jsx';
 import { ExpenseForm } from '../components/forms.jsx';
 
 const LAST = STEPS.length - 1;
@@ -176,7 +176,7 @@ function SalesStep({ d, form, setSale, active, isToday, t, p }) {
               <MoneyInput label={t('Pesa za simu', 'Mobile money')} value={form.sales[s].mobile} onChange={(v) => setSale(s, 'mobile', v)} hint={t(`Jana: ${tsh(d.yesterday[s].mobile)}`, `Yesterday: ${tsh(d.yesterday[s].mobile)}`)} />
               <SelectField label={t('Keshia wa siku', 'Cashier of the day')} value={form.sales[s].cashier_id} onChange={(v) => setSale(s, 'cashier_id', v)} hint={t('Upungufu wa pesa utaandikwa kwenye akaunti yake.', 'A cash shortage is written on this person’s account.')}>
                 <option value="">{t('— Chagua —', '— Choose —')}</option>
-                {cashiers.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                {cashiers.map((w) => <option key={w.id} value={w.id} translate="no">{w.name}</option>)}
               </SelectField>
             </div>
           </div>
@@ -246,7 +246,7 @@ function PaymentsStep({ d, form, setForm, isToday, go, t, p }) {
             return (
               <div className="pay-row" key={w.worker_id}>
                 <div className="att-who"><Avatar name={w.name} /><span>
-                  <strong>{w.name}</strong>
+                  <strong><Name>{w.name}</Name>{statusOf(w.worker_id) === 'late' ? <span className="late-badge">{t('Amechelewa', 'Late')}</span> : null}</strong>
                   <small>{p(ROLES[w.role])} · {t(`Kiwango: ${tsh(w.rate)} / siku`, `Rate: ${tsh(w.rate)} / day`)}</small>
                   {!atWork(w.worker_id) ? <small className="pay-away">{t('Hayupo kazini leo: angalia malipo haya', 'Not at work today: check this payment')}</small> : null}
                 </span></div>
@@ -306,7 +306,7 @@ function CountStep({ d, form, setForm, active, t, p }) {
                 {c.diff == null ? null : (
                   <motion.div key={c.diff === 0 ? 'z' : c.diff < 0 ? 'n' : 'p'} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
                     {c.diff === 0 ? <Callout tone="good"><strong>{t('Hakuna tofauti.', 'No difference.')}</strong> {t('Pesa zinalingana.', 'The cash matches.')}</Callout>
-                      : c.diff < 0 ? <Callout tone="bad"><strong>{t('Upungufu', 'Shortage')}: {tsh(-c.diff)}.</strong> {who ? t(`Utaandikwa kwenye akaunti ya ${who.name} na kukatwa kwenye mshahara.`, `It will go to ${who.name}'s account and be deducted from pay.`) : t('Chagua keshia wa siku kwenye hatua ya mauzo.', 'Choose the cashier of the day in the sales step.')}</Callout>
+                      : c.diff < 0 ? <Callout tone="bad"><strong>{t('Upungufu', 'Shortage')}: {tsh(-c.diff)}.</strong> {who ? <>{t('Utaandikwa kwenye akaunti ya', 'It will go to the account of')} <Name>{who.name}</Name> {t('na kukatwa kwenye mshahara.', 'and be deducted from pay.')}</> : t('Chagua keshia wa siku kwenye hatua ya mauzo.', 'Choose the cashier of the day in the sales step.')}</Callout>
                         : <Callout tone="warn"><strong>{t('Ziada', 'Surplus')}: {tsh(c.diff)}.</strong> {t('Angalia kama mauzo yoyote hayajaandikwa.', 'Check whether a sale is missing.')}</Callout>}
                   </motion.div>
                 )}
@@ -330,7 +330,7 @@ function AttendanceStep({ d, form, setForm, lockedAtt, t, p }) {
         <div style={{ marginBottom: 12 }}>
           {lockedAtt.map((w) => (
             <div className="att-row" key={w.worker_id}>
-              <div className="att-who"><Avatar name={w.name} /><span><strong>{w.name}</strong><small>{p(ROLES[w.role])}</small></span></div>
+              <div className="att-who"><Avatar name={w.name} /><span><strong><Name>{w.name}</Name></strong><small>{p(ROLES[w.role])}</small></span></div>
               <span className="row" style={{ gap: 8 }}><StatusChip k={w.status} /><Lock size={16} aria-label={t('Imejazwa yenyewe', 'Filled automatically')} /></span>
             </div>
           ))}
@@ -338,7 +338,7 @@ function AttendanceStep({ d, form, setForm, lockedAtt, t, p }) {
       ) : null}
       {open.map((w) => (
         <div className="att-row" key={w.worker_id}>
-          <div className="att-who"><Avatar name={w.name} /><span><strong>{w.name}</strong><small>{p(ROLES[w.role])}</small></span></div>
+          <div className="att-who"><Avatar name={w.name} /><span><strong><Name>{w.name}</Name>{form.att[w.worker_id] === 'late' ? <span className="late-badge">{t('Amechelewa', 'Late')}</span> : null}</strong><small>{p(ROLES[w.role])}</small></span></div>
           <div className="att-btns" role="group" aria-label={w.name}>
             <button type="button" className="g" aria-pressed={form.att[w.worker_id] === 'present'} onClick={() => set(w.worker_id, 'present')}>{t('Yupo', 'Present')}</button>
             <button type="button" className="w" aria-pressed={form.att[w.worker_id] === 'late'} onClick={() => set(w.worker_id, 'late')}>{t('Amechelewa', 'Late')}</button>
@@ -372,7 +372,7 @@ function FinishStep({ d, form, active, act, day, isToday, go, t, p, lockedAtt, h
       const r = await act.closeDay(day);
       confetti({ particleCount: 110, spread: 75, origin: { y: 0.7 }, colors: ['#e3b655', '#14916f', '#ffffff', '#0b5d49'], disableForReducedMotion: true });
       toast.success(isToday ? t('Siku imefungwa. Kazi nzuri!', 'The day is closed. Well done!') : t('Siku imefungwa. Sasa jaza siku inayofuata.', 'The day is closed. Now fill the next day.'));
-      r.shortages.forEach((s) => toast.warning(t(`Upungufu wa ${tsh(s.amount)} umeandikwa kwenye akaunti ya ${s.worker_name}.`, `The ${tsh(s.amount)} shortage was added to ${s.worker_name}'s account.`), { duration: 8000 }));
+      r.shortages.forEach((s) => toast.warning(<>{t(`Upungufu wa ${tsh(s.amount)} umeandikwa kwenye akaunti ya`, `The ${tsh(s.amount)} shortage was added to the account of`)} <Name>{s.worker_name}</Name>.</>, { duration: 8000 }));
       nav(isToday ? '/' : href(0, addDays(day, 1)));
     } catch (e) { fail(e); } finally { setBusy(false); }
   };
@@ -402,11 +402,11 @@ function FinishStep({ d, form, active, act, day, isToday, go, t, p, lockedAtt, h
       <div className="stack" style={{ marginTop: 18 }}>
         {shorts.map(({ s, c, who }) => (
           <Callout key={s} tone="warn">
-            {who ? <>{t('Upungufu wa', 'The shortage of')} <strong>{tsh(-c.diff)}</strong> ({p(SECTIONS[s])}) {t('utaandikwa kwenye akaunti ya', 'will go straight to the account of')} <strong>{who.name}</strong>{t(' na kukatwa kwenye mshahara mara moja.', ' and be deducted from pay.')}</>
+            {who ? <>{t('Upungufu wa', 'The shortage of')} <strong>{tsh(-c.diff)}</strong> ({p(SECTIONS[s])}) {t('utaandikwa kwenye akaunti ya', 'will go straight to the account of')} <strong><Name>{who.name}</Name></strong>{t(' na kukatwa kwenye mshahara mara moja.', ' and be deducted from pay.')}</>
               : <>{t('Chagua keshia wa siku kwa', 'Choose the cashier of the day for')} {p(SECTIONS[s])}.</>}
           </Callout>
         ))}
-        {missing.length ? <Callout tone="warn">{t('Hawajaandikwa:', 'Not marked yet:')} <strong>{missing.map((w) => w.name).join(', ')}</strong>. <button type="button" className="btn-ghost" onClick={() => go(0)}>{t('Nenda kwenye mahudhurio', 'Go to attendance')}</button></Callout> : null}
+        {missing.length ? <Callout tone="warn">{t('Hawajaandikwa:', 'Not marked yet:')} <strong><Name>{missing.map((w) => w.name).join(', ')}</Name></strong>. <button type="button" className="btn-ghost" onClick={() => go(0)}>{t('Nenda kwenye mahudhurio', 'Go to attendance')}</button></Callout> : null}
       </div>
       <div style={{ marginTop: 24 }}>
         <Btn className="btn-primary btn-block" style={{ minHeight: 56, fontSize: '1.05rem' }} loading={busy} disabled={missing.length > 0 || noCashier} onClick={close}>

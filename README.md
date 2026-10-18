@@ -57,7 +57,7 @@ A **"Tarehe ya kujaza" (day to fill)** field lets the manager fill and close ear
 ### Wafanyakazi (Workers)
 Each worker has:
 - **Details:** role (cashier, cook, waiter, other) and phone number.
-- **Pay:** a monthly salary on the month-end salary list, or daily pay entered in the close-day Malipo step. The *Malipo* tab switches between the two.
+- **Pay:** a monthly salary counted from the day the worker started, or daily pay entered in the close-day Malipo step. The *Malipo* tab switches between the two.
 - **Dates:** a weekly day off and a start date.
 - **Leave:** *ruhusa* (permission) and *likizo* (holiday) periods. These show on an attendance calendar.
 - **An account statement:** for monthly workers, base pay minus advances and shortages, giving the net pay; for daily-paid workers, what they were paid each day.
@@ -71,7 +71,7 @@ Pick a **month**, or pick a **single day** (*Siku moja*), and all four tabs foll
 |---|---|---|
 | **Mauzo** (Sales) | Totals, cash/mobile split, sales-by-day chart, and a table of every day with its sales, expenses and cash difference | That day's sales, expenses, cash difference, shortages, advances and attendance, with the month's totals below |
 | **Matumizi** (Expenses) | Month total, totals by category, latest expenses | That day's expenses and the workers' daily pay total, plus a form to add an expense if the day is still open |
-| **Mishahara** (Salaries) | The salary list of monthly workers: approve it, mark each line paid, and set how special days count. Daily-paid workers are listed separately with what they were paid. | What each worker earned that day |
+| **Mishahara** (Salaries) | Every monthly salary whose pay day falls in the month: approve each worker on their pay day, mark it paid, and set how special days count. Daily-paid workers are listed separately with what they were paid. | What each worker earned that day |
 | **Ripoti** (Reports) | Money left (profit) for the month | Money left (profit) up to that day (see below) |
 
 The month and one-day reports can be downloaded as **PDF** or **Excel**, in either language. They include the daily pay and end with the money left (*pesa iliyobaki*).
@@ -120,18 +120,19 @@ Mobile money is not part of this calculation because it never goes into the till
 - **Below zero:** a shortage (*upungufu*). When the day is closed it is written onto the cashier's account and taken from their pay, unless the manager waives it.
 - **Above zero:** a surplus (*ziada*). Nobody is charged. It usually means a sale was not recorded, or an expense was not really paid from the till.
 
-**Monthly salaries:**
+**Monthly salaries** run in *pay months* counted from the day the worker started. Someone who starts on 12 March is paid on 12 April for 12 March to 11 April, then on 12 May for 12 April to 11 May, and so on. A day the month lacks becomes its last day: a start on 31 January is paid on 28 February, then on 31 March. A worker moved from daily pay to a salary starts their pay months on the day of the switch.
 
 ```
 base pay = monthly rate − (monthly rate ÷ 30 × unpaid days)
 ```
 
-Unpaid days are:
+A whole pay month earns the full rate, whatever day of the month it began. Unpaid days are:
 - days marked **absent**;
-- days before the worker's start date, or after they were removed;
 - days off, permission or holiday, if the rules on the Salaries tab say these are cut.
 
-Days that have not happened yet are never cut.
+Days that have not happened yet are never cut. A worker who leaves is paid the day after their last day, for the days of their last pay month they were there (monthly rate ÷ 30 per day).
+
+Each pay month appears on the salary list of the month its pay day falls in, and is approved on its own, from its pay day on. Leo lists every worker whose pay day has come and whose salary is not approved yet.
 
 **Daily pay:** daily-paid workers are not on the monthly salary list. They are paid by hand each day, and the manager types the amount in the Malipo step. That amount *is* their pay; nothing is deducted from a salary. Their daily rate is only shown as a suggestion.
 
@@ -169,9 +170,9 @@ A table shows how sales, expenses and daily pay add up day by day. On the last d
   - every active worker marked for attendance;
   - a cashier chosen for any section that has a shortage.
 - **Closing writes the shortage straight onto the cashier's account.**
-- **Shortages and advances can be changed only until the month's salary list is approved:** shortages can be waived or re-applied, and advances added. Approval also locks the special-day rules.
-- **Approved salary lists are snapshotted**, so later changes cannot alter them.
-- **Unpaid salaries carry forward.** Pay from an approved month stays on the worker's account until it is marked paid.
+- **A salary is approved one worker at a time, on or after its pay day.** After that, that worker's shortages and advances dated inside the pay month cannot be changed.
+- **Approved salaries are snapshotted**, with the special-day rules they used, so later changes cannot alter them. The rules themselves can always change; they apply to salaries not yet approved.
+- **Unpaid salaries carry forward.** An approved salary stays on the worker's account until it is marked paid.
 - **Manual shortages need a reason.** An expense category that is already in use cannot be deleted; hide it instead.
 - **Important actions are recorded in an `AuditLog`:**
   - closing a day;
@@ -281,7 +282,7 @@ backend/                  Django 5 + Django REST Framework
   config/                 settings, URLs, WSGI
   core/
     models.py             Worker, Day, DaySection, Attendance, Expense, DailyPayment, Advance,
-                          Shortage, LeaveRecord, SalaryRun, SalaryLine, Settings, AuditLog, Opinion
+                          Shortage, LeaveRecord, SalaryLine, Settings, AuditLog, Opinion
     services.py           every business rule and money calculation
     views.py, urls.py     thin REST endpoints
     exports.py            PDF (reportlab) and Excel (openpyxl) reports
@@ -314,7 +315,7 @@ Every endpoint is under `/api/` and needs a `Bearer` token, except login and the
 | Workers | `workers/`, `workers/<id>/`, `…/remove/`, `…/restore/`, `…/leaves/`, `…/account/?month=`, `…/shortages/` |
 | A day | `GET days/<date>/`, `PUT …/sales/`, `PUT …/payments/`, `PUT …/cash-count/`, `PUT …/attendance/`, `POST …/close/`, `GET …/pay/` |
 | Money | `expenses/?month=`, `advances/`, `shortages/<id>/` |
-| Salaries | `GET salary/<yyyy-mm>/`, `POST …/approve/`, `POST salary-lines/<id>/paid/` |
+| Salaries | `GET salary/<yyyy-mm>/` (the pay months paid that month), `POST …/approve/` with `{worker_id, start}`, `POST salary-lines/<id>/paid/` |
 | Reports | `GET reports/month/<yyyy-mm>/` and `GET reports/day/<date>/`, with `?file=pdf\|xlsx&lang=sw\|en` to download |
 | Feedback | `POST opinions/submit/` (public, no token), `GET opinions/?source=&unread=&limit=` (newest first, with `has_more`), `GET opinions/unread/`, `POST opinions/read-all/`, `PATCH/DELETE opinions/<id>/` |
 

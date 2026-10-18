@@ -117,7 +117,7 @@ export default function Opinions() {
                 <p className="op-msg">{o.message}</p>
                 <footer>
                   <span className="op-contact">
-                    {o.contact ? <><UserCircle size={17} weight="duotone" aria-hidden="true" />{o.contact}</>
+                    {o.contact ? <><UserCircle size={17} weight="duotone" aria-hidden="true" /><span translate="no" className="notranslate">{o.contact}</span></>
                       : <><EyeSlash size={17} weight="duotone" aria-hidden="true" />{t('Bila jina', 'Anonymous')}</>}
                   </span>
                   <span className="op-actions">

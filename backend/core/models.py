@@ -66,6 +66,8 @@ class Worker(Stamped):
     day_off = models.PositiveSmallIntegerField(
         default=1, null=True, blank=True, help_text='0=Sunday ... 6=Saturday; null means no weekly day off')
     joined_on = models.DateField()
+    monthly_since = models.DateField(
+        null=True, blank=True, help_text='Set when a daily-paid worker moves to a monthly salary: pay months then run from this day')
     active = models.BooleanField(default=True)
     removed_on = models.DateField(null=True, blank=True)
     removed_reason = models.CharField(max_length=20, blank=True)
@@ -177,15 +179,15 @@ class Shortage(Stamped):
         ordering = ['date', 'id']
 
 
-class SalaryRun(Stamped):
-    month = models.CharField(max_length=7, unique=True, help_text='yyyy-mm')
-    approved_at = models.DateTimeField(null=True, blank=True)
-    rules = models.JSONField(default=dict)
-
-
 class SalaryLine(Stamped):
-    run = models.ForeignKey(SalaryRun, on_delete=models.CASCADE, related_name='lines')
+    """One approved pay month of a monthly-paid worker. Pay months run from the day they started (12 March to
+    11 April), and each is approved on its own pay day, the day after it ends; the figures are frozen then."""
     worker = models.ForeignKey(Worker, on_delete=models.PROTECT, related_name='salary_lines')
+    month = models.CharField(max_length=7, db_index=True, help_text='yyyy-mm of the pay day: the salary list it is on')
+    period_start = models.DateField()
+    period_end = models.DateField(help_text='The last day paid for: the end of the pay month, or the last day worked')
+    approved_at = models.DateTimeField()
+    rules = models.JSONField(default=dict, help_text='The special-day rules it was worked out with')
     base = models.BigIntegerField()
     advances = models.BigIntegerField()
     shortages = models.BigIntegerField()
@@ -195,7 +197,8 @@ class SalaryLine(Stamped):
     paid_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        unique_together = [('run', 'worker')]
+        ordering = ['period_start', 'id']
+        unique_together = [('worker', 'period_start')]
 
 
 class AuditLog(models.Model):

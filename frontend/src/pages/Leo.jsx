@@ -5,13 +5,13 @@ import { useActions, useDay, useErr, useMeta } from '../hooks.js';
 import { useI } from '../i18n.jsx';
 import { num, pct, sum, tsh } from '../format.js';
 import { ROLES, SECTIONS, STEPS } from '../vocab.js';
-import { Avatar, Btn, Chip, CountUp, Empty, Leader, Page, PageSkeleton, Rise, StatusChip } from '../components/ui.jsx';
+import { Avatar, Btn, Chip, CountUp, Empty, Leader, Name, Page, PageSkeleton, Rise, StatusChip } from '../components/ui.jsx';
 import { BarsChart, Ring, Spark } from '../components/charts.jsx';
 
 let introPlayed = false;
 
 export default function Leo() {
-  const { t, p, L, fmtDate, longDate, dayShort, dayName } = useI();
+  const { t, p, L, fmtDate, fmtRange, longDate, dayShort, dayName } = useI();
   const today = useMeta().data.today;
   const { data: d } = useDay(today);
   const act = useActions();
@@ -135,7 +135,7 @@ export default function Leo() {
               {d.attendance.map((w) => (
                 <li key={w.worker_id}>
                   <Avatar name={w.name} />
-                  <Link to={`/wafanyakazi/${w.worker_id}`} className="li-main" style={{ textDecoration: 'none' }}><strong>{w.name}</strong><span>{p(ROLES[w.role])}</span></Link>
+                  <Link to={`/wafanyakazi/${w.worker_id}`} className="li-main" style={{ textDecoration: 'none' }}><strong><Name>{w.name}</Name></strong><span>{p(ROLES[w.role])}</span></Link>
                   <StatusChip k={w.status} />
                 </li>
               ))}
@@ -144,23 +144,30 @@ export default function Leo() {
 
           <Rise as="section" delay={0.08}>
             <div className="sec-head"><h2>{t('Yanayosubiri wewe', 'Waiting for you')}</h2></div>
-            {d.shortages.length === 0 && d.unpaid_salaries.length === 0 ? (
+            {d.shortages.length === 0 && d.unpaid_salaries.length === 0 && d.salaries_due.length === 0 ? (
               <Empty icon={CheckCircle}>{t('Hakuna kinachosubiri. Kazi nzuri.', 'Nothing is waiting. Good work.')}</Empty>
             ) : (
               <ul className="list">
                 {d.shortages.map((s) => (
                   <li key={`s${s.id}`}>
                     <Chip tone={s.status === 'waived' ? 'neutral' : 'bad'}>{s.status === 'waived' ? t('Imesamehewa', 'Waived') : t('Upungufu', 'Shortage')}</Chip>
-                    <span className="li-main"><strong>{s.worker_name}</strong><span>{fmtDate(s.date)}{s.section ? `, ${p(SECTIONS[s.section])}` : ''}</span></span>
+                    <span className="li-main"><strong><Name>{s.worker_name}</Name></strong><span>{fmtDate(s.date)}{s.section ? `, ${p(SECTIONS[s.section])}` : ''}</span></span>
                     <span className="li-amt" style={s.status === 'waived' ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{tsh(s.amount)}</span>
                     <Btn className="btn-quiet btn-small" onClick={() => flip(s)}>{s.status === 'waived' ? t('Rudisha makato', 'Deduct again') : t('Samehe', 'Waive')}</Btn>
                     <Link to={`/wafanyakazi/${s.worker_id}?tab=account`} className="btn-ghost">{t('Akaunti', 'Account')}</Link>
                   </li>
                 ))}
+                {d.salaries_due.map((x) => (
+                  <li key={`d${x.worker_id}`}>
+                    <Chip tone="warn">{t('Mshahara', 'Salary')}</Chip>
+                    <span className="li-main"><strong><Name>{x.name}</Name></strong><span>{t(`Siku yake ya mshahara: ${fmtDate(x.pay_day)} · ${fmtRange(x.start, x.end)}`, `Pay day: ${fmtDate(x.pay_day)} · ${fmtRange(x.start, x.end)}`)}</span></span>
+                    <Link to={`/fedha?tab=salaries&mwezi=${x.month}`} className="btn btn-primary btn-small">{t('Idhinisha', 'Approve')}</Link>
+                  </li>
+                ))}
                 {d.unpaid_salaries.map((u) => (
                   <li key={`u${u.worker_id}`}>
                     <Chip tone="bad">{t('Haijalipwa', 'Unpaid')}</Chip>
-                    <span className="li-main"><strong>{u.name}</strong><span>{t('Anaidai kampuni, mshahara wa mwezi uliopita', 'Owed by the company, from a previous month')}</span></span>
+                    <span className="li-main"><strong><Name>{u.name}</Name></strong><span>{t('Anaidai kampuni: mshahara ulioidhinishwa ambao bado haujalipwa', 'Owed by the company: approved salary not yet paid')}</span></span>
                     <span className="li-amt">{tsh(u.amount)}</span>
                     <Link to={`/wafanyakazi/${u.worker_id}?tab=account`} className="btn btn-quiet btn-small">{t('Akaunti', 'Account')}</Link>
                   </li>

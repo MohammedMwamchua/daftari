@@ -50,8 +50,10 @@ class Command(BaseCommand):
         rnd = random.Random(7)
         today = svc.today()
         start = today - timedelta(days=100)
-        ws = [Worker.objects.create(name=n, role=r, pay_type=pt, rate=rate, day_off=off, phone=ph, joined_on=start)
-              for n, r, pt, rate, off, ph in WORKERS]
+        # staggered start days, so the monthly-paid each have their own pay day
+        joined = [start, start + timedelta(days=5), start + timedelta(days=12)] + [start] * 3
+        ws = [Worker.objects.create(name=n, role=r, pay_type=pt, rate=rate, day_off=off, phone=ph, joined_on=j)
+              for (n, r, pt, rate, off, ph), j in zip(WORKERS, joined)]
         cashiers = ws[:2]
         cats = {c.key: c for c in ExpenseCategory.objects.all()}
         for i in range((today - start).days):
@@ -62,7 +64,7 @@ class Command(BaseCommand):
             day = Day.objects.create(date=d, closed_at=svc.timezone.now(), visited=[0, 1, 2, 3, 4, 5])
             worked = {}
             for w in ws:
-                if svc.js_dow(d) == w.day_off:
+                if d < w.joined_on or svc.js_dow(d) == w.day_off:
                     continue
                 worked[w] = rnd.choice(['present'] * 14 + ['late', 'absent'])
                 Attendance.objects.create(worker=w, date=d, status=worked[w])
@@ -76,6 +78,7 @@ class Command(BaseCommand):
             for s, amount in zip(SECTIONS, (b, total - b)):
                 mobile = round(amount * rnd.uniform(0.34, 0.42) / 500) * 500
                 cashier = cashiers[(i + SECTIONS.index(s)) % 2]
+                cashier = cashier if d >= cashier.joined_on else cashiers[0]
                 ds = DaySection.objects.create(day=day, section=s, cash=amount - mobile, mobile=mobile, cashier=cashier,
                                                float_amount=50000 if s == 'banda' else 80000,
                                                difference=diff if s == 'mgahawa' else 0)
@@ -91,7 +94,9 @@ class Command(BaseCommand):
             if d.day == 8:
                 Expense.objects.create(date=d, category=cats['umeme'], amount=96000, reason='Bili ya umeme', paid_from='simu')
             if d.day in (9, 21):
-                Advance.objects.create(worker=ws[rnd.randint(2, 5)], date=d, amount=rnd.choice([15000, 20000, 50000]))
+                w = ws[rnd.randint(2, 5)]
+                if d >= w.joined_on:
+                    Advance.objects.create(worker=w, date=d, amount=rnd.choice([15000, 20000, 50000]))
         # today: open and part-way through the steps
         day = svc.get_day(today)
         sec = {s.section: s for s in day.sections.all()}
@@ -119,8 +124,10 @@ class Command(BaseCommand):
             o = Opinion.objects.create(source=source, topic=topic, rating=stars, message=message, contact=contact)
             at = timezone.now() - timedelta(hours=hours)
             Opinion.objects.filter(pk=o.pk).update(created_at=at, read_at=at + timedelta(hours=1) if read else None)
-        # lock the two oldest full months so the "approved" state can be seen
-        cur = svc.ym_of(today)
-        for ym in [m for m in svc.months_available() if m != cur][1:]:
-            run = svc.approve_salary(ym, user)
-            run.lines.update(paid=True)
+        # approve and pay the older salaries, and leave the latest one due, so each state can be seen
+        for ym in svc.months_available():
+            for w, pm in svc.salary_due(ym):
+                if pm.pay_day <= today - timedelta(days=20):
+                    ln = svc.approve_pay_month(ym, w, pm.start, user)
+                    ln.paid, ln.paid_at = True, timezone.now()
+                    ln.save()

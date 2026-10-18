@@ -107,9 +107,12 @@ export const SelectField = ({ label, value, onChange, children, hint }) => (
   </label>
 );
 
+/* A person's name. Page translators (Chrome, Edge) leave it alone, so "Zawadi" or "Neema" never turns into an English word. */
+export const Name = ({ children }) => <span translate="no" className="notranslate">{children}</span>;
+
 const hash = (s) => [...String(s)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 997, 7);
 export const Avatar = ({ name, size }) => (
-  <span className={`av t${hash(name) % 6}${size === 'lg' ? ' lg' : ''}`} aria-hidden="true">
+  <span className={`av t${hash(name) % 6}${size === 'lg' ? ' lg' : ''}`} aria-hidden="true" translate="no">
     {name.split(' ').map((x) => x[0]).join('').slice(0, 2)}
   </span>
 );

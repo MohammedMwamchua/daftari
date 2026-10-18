@@ -7,7 +7,7 @@ import { useActions, useDay, useDayPay, useDayReport, useErr, useExpenses, useMe
 import { useI } from '../i18n.jsx';
 import { num, parseISO, signed, sum, tsh } from '../format.js';
 import { PAID_FROM, ROLES, SECTIONS } from '../vocab.js';
-import { Avatar, Btn, Callout, Chip, CountUp, Empty, Leader, Page, PageSkeleton, Rise, Seg, SelectField, StatusChip, Tabs, TextField } from '../components/ui.jsx';
+import { Avatar, Btn, Callout, Chip, CountUp, Empty, Leader, Name, Page, PageSkeleton, Rise, Seg, SelectField, StatusChip, Tabs, TextField } from '../components/ui.jsx';
 import { Modal } from '../components/Modal.jsx';
 import { BarsChart, CatBars, Donut } from '../components/charts.jsx';
 import { DownloadButtons, ExpenseForm } from '../components/forms.jsx';
@@ -55,7 +55,8 @@ export default function Money() {
   const asked = sp.get('day');
   const first = `${meta.months[meta.months.length - 1]}-01`;
   const day = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && asked >= first && asked <= meta.today ? asked : null;
-  const [ym, setYm] = useState((day || meta.today).slice(0, 7));
+  const askedMonth = sp.get('mwezi');
+  const [ym, setYm] = useState(day ? day.slice(0, 7) : meta.months.includes(askedMonth) ? askedMonth : meta.today.slice(0, 7));
   const go = (nextTab, nextDay) => setSp({ ...(nextTab !== 'sales' ? { tab: nextTab } : {}), ...(nextDay ? { day: nextDay } : {}) });
   const setTab = (v) => go(v, day);
   const pickMonth = (m) => { setYm(m); go(tab, null); };
@@ -220,7 +221,7 @@ function DayPanel({ date }) {
                 {paid.map((x) => (
                   <li key={`p${x.worker_id}`}>
                     <Chip tone="info">{t('Malipo', 'Paid')}</Chip>
-                    <span className="li-main"><strong>{x.name}</strong><span>{p(PAID_FROM[x.paid_from])}{x.section ? ` · ${p(SECTIONS[x.section])}` : ''}</span></span>
+                    <span className="li-main"><strong><Name>{x.name}</Name></strong><span>{p(PAID_FROM[x.paid_from])}{x.section ? ` · ${p(SECTIONS[x.section])}` : ''}</span></span>
                     <span className="li-amt">{tsh(x.amount)}</span>
                   </li>
                 ))}
@@ -234,14 +235,14 @@ function DayPanel({ date }) {
                 {d.shortages.map((x) => (
                   <li key={`s${x.id}`}>
                     <Chip tone={x.status === 'waived' ? 'neutral' : 'bad'}>{x.status === 'waived' ? t('Imesamehewa', 'Waived') : t('Upungufu', 'Shortage')}</Chip>
-                    <span className="li-main"><strong>{x.worker_name}</strong><span>{x.section ? p(SECTIONS[x.section]) : ''}{x.reason ? `${x.section ? ' · ' : ''}${x.reason}` : ''}</span></span>
+                    <span className="li-main"><strong><Name>{x.worker_name}</Name></strong><span>{x.section ? p(SECTIONS[x.section]) : ''}{x.reason ? `${x.section ? ' · ' : ''}${x.reason}` : ''}</span></span>
                     <span className="li-amt" style={x.status === 'waived' ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{tsh(x.amount)}</span>
                   </li>
                 ))}
                 {d.advances.map((a) => (
                   <li key={`a${a.id}`}>
                     <Chip tone="info">{t('Advansi', 'Advance')}</Chip>
-                    <span className="li-main"><strong>{a.worker_name}</strong><span>{fmtDate(d.date)}</span></span>
+                    <span className="li-main"><strong><Name>{a.worker_name}</Name></strong><span>{fmtDate(d.date)}</span></span>
                     <span className="li-amt">{tsh(a.amount)}</span>
                   </li>
                 ))}
@@ -256,7 +257,7 @@ function DayPanel({ date }) {
               {d.attendance.map((w) => (
                 <li key={w.worker_id}>
                   <Avatar name={w.name} />
-                  <Link to={`/wafanyakazi/${w.worker_id}`} className="li-main" style={{ textDecoration: 'none' }}><strong>{w.name}</strong><span>{p(ROLES[w.role])}</span></Link>
+                  <Link to={`/wafanyakazi/${w.worker_id}`} className="li-main" style={{ textDecoration: 'none' }}><strong><Name>{w.name}</Name></strong><span>{p(ROLES[w.role])}</span></Link>
                   <StatusChip k={w.status} />
                 </li>
               ))}
@@ -342,7 +343,7 @@ function DaySalaries({ date, wholeMonth }) {
           <tbody>
             {s.lines.map((l) => (
               <tr key={l.worker.id}>
-                <td><Link to={`/wafanyakazi/${l.worker.id}?tab=account`} className="linkcell" style={{ textDecoration: 'none' }}>{l.worker.name}</Link><small className="muted" style={{ display: 'block', fontWeight: 400 }}>{p(ROLES[l.worker.role])}</small></td>
+                <td><Link to={`/wafanyakazi/${l.worker.id}?tab=account`} className="linkcell" style={{ textDecoration: 'none' }}><Name>{l.worker.name}</Name></Link><small className="muted" style={{ display: 'block', fontWeight: 400 }}>{p(ROLES[l.worker.role])}</small></td>
                 <td><StatusChip k={l.status} /></td>
                 <td>{tsh(l.rate)} / {l.pay_type === 'monthly' ? t('mwezi', 'month') : t('siku', 'day')}</td>
                 <td><b>{num(l.earned)}</b></td>
@@ -456,17 +457,44 @@ function ExpensesTab({ ym }) {
 }
 
 /* ------------------------------------------------------------ salaries */
+/* A monthly salary runs from the day the worker started (12 March to 11 April) and is paid in full the day after
+   (12 April). A month's list holds every pay month whose pay day falls in it, and each is approved on its own day. */
 function SalariesTab({ ym }) {
-  const { t, p, fmtDate } = useI();
+  const { t, p, fmtDate, fmtRange, monthName } = useI();
   const { data: s } = useSalary(ym);
   const act = useActions();
   const fail = useErr();
-  const [confirm, setConfirm] = useState(false);
+  const [pick, setPick] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   if (!s) return <PageSkeleton />;
-  const locked = s.status === 'approved';
   const kinds = [['permission', t('Ruhusa', 'Permission')], ['holiday', t('Likizo', 'Holiday')], ['dayoff', t('Siku ya mapumziko', 'Day off')]];
   const setRule = (k, field, v) => act.saveSettings({ rules: { ...s.rules, [k]: { ...s.rules[k], [field]: v } } }).catch(fail);
-  const yn = (v, on) => <Seg label="" value={v ? 'y' : 'n'} disabled={locked} onChange={(x) => on(x === 'y')} options={[['y', t('Ndiyo', 'Yes')], ['n', t('Hapana', 'No')]]} />;
+  const yn = (v, on) => <Seg label="" value={v ? 'y' : 'n'} onChange={(x) => on(x === 'y')} options={[['y', t('Ndiyo', 'Yes')], ['n', t('Hapana', 'No')]]} />;
+  const ask = (l) => { setPick(l); setOpen(true); };
+  const approve = async () => {
+    setBusy(true);
+    try {
+      await act.approveSalary(ym, pick.worker.id, pick.start);
+      setOpen(false);
+      toast.success(t(<>Mshahara wa <Name>{pick.worker.name}</Name> umeidhinishwa.</>, <><Name>{pick.worker.name}</Name>&rsquo;s salary is approved.</>));
+    } catch (e) { fail(e); } finally { setBusy(false); }
+  };
+  const state = (l) => {
+    if (l.status === 'approved') {
+      return (
+        <span className="sal-state">
+          {l.paid ? <Chip tone="good">{t('Amelipwa', 'Paid')}</Chip> : <Chip tone="info"><Lock size={12} weight="bold" />{t('Imeidhinishwa', 'Approved')}</Chip>}
+          <Btn className="btn-quiet btn-small paid-btn" onClick={() => act.markPaid(l.line_id, !l.paid).catch(fail)}>{l.paid ? t('Tengua', 'Undo') : t('Weka amelipwa', 'Mark paid')}</Btn>
+        </span>
+      );
+    }
+    if (l.status === 'due') {
+      return <span className="sal-state"><Chip tone="warn">{t('Inadaiwa', 'Due')}</Chip><Btn className="btn-primary btn-small" onClick={() => ask(l)}><CheckCircle size={16} weight="bold" />{t('Idhinisha', 'Approve')}</Btn></span>;
+    }
+    return <span className="sal-state"><Chip tone="neutral">{t('Bado', 'Not yet')}</Chip></span>;
+  };
+  const upcoming = s.lines.some((l) => l.status === 'upcoming');
 
   return (
     <>
@@ -479,7 +507,7 @@ function SalariesTab({ ym }) {
       </div>
 
       <section className="panel" style={{ marginBottom: 22 }}>
-        <div className="panel-head"><div><h2>{t('Siku maalum zinahesabiwaje?', 'How do these days count?')}</h2><p className="muted">{locked ? t('Imefungwa baada ya kuidhinisha.', 'Locked after approval.') : t('Weka mara moja kulingana na sera yako.', 'Set once to match your policy.')}</p></div></div>
+        <div className="panel-head"><div><h2>{t('Siku maalum zinahesabiwaje?', 'How do these days count?')}</h2><p className="muted">{t('Zinatumika kwa mishahara ambayo bado haijaidhinishwa. Iliyoidhinishwa haibadiliki.', 'They apply to salaries not yet approved. Approved ones keep their figures.')}</p></div></div>
         <div className="rules rules-yn">
           <span className="h" /><span className="h">{t('Mshahara wa mwezi: kata?', 'Monthly salary: deduct it?')}</span>
           {kinds.map(([k, label]) => (
@@ -489,24 +517,48 @@ function SalariesTab({ ym }) {
       </section>
 
       <div className="sec-head">
-        <div className="row"><h2>{t('Orodha ya mishahara', 'Salary list')}</h2>{locked ? <Chip tone="good"><Lock size={12} weight="bold" />{t('Imeidhinishwa', 'Approved')}</Chip> : <Chip tone="warn">{t('Rasimu', 'Draft')}</Chip>}</div>
-        {!locked ? <Btn className="btn-primary" onClick={() => setConfirm(true)}><CheckCircle size={18} weight="bold" />{t('Idhinisha orodha ya mishahara', 'Approve the salary list')}</Btn> : null}
+        <div>
+          <div className="row"><h2>{t('Orodha ya mishahara', 'Salary list')}</h2>{s.due_count ? <Chip tone="warn">{t(`${s.due_count} inasubiri kuidhinishwa`, `${s.due_count} waiting for approval`)}</Chip> : null}</div>
+          <p className="muted">{t('Kila mfanyakazi analipwa mwezi kamili unaoanzia siku aliyoanza kazi, kwenye siku yake ya mshahara.', 'Each worker is paid a full month counted from the day they started, on their own pay day.')}</p>
+        </div>
       </div>
-      <div className="tbl-wrap">
-        <table className="tbl">
-          <thead><tr><th>{t('Mfanyakazi', 'Worker')}</th><th>{t('Msingi', 'Base')}</th><th>{t('Advansi', 'Advances')}</th><th>{t('Upungufu', 'Shortages')}</th><th>{t('Atalipwa', 'Net pay')}</th>{locked ? <th>{t('Malipo', 'Paid')}</th> : null}</tr></thead>
-          <tbody>
-            {s.lines.map((l) => (
-              <tr key={l.worker.id}>
-                <td><Link to={`/wafanyakazi/${l.worker.id}?tab=account`} className="linkcell" style={{ textDecoration: 'none' }}>{l.worker.name}</Link>{l.removed ? <> <Chip tone="neutral">{t('Ameondolewa', 'Removed')}</Chip></> : null}</td>
-                <td>{num(l.base)}</td><td>{l.advances ? `− ${num(l.advances)}` : '0'}</td><td>{l.shortages ? <span className="bad">− {num(l.shortages)}</span> : '0'}</td><td><b>{num(l.net)}</b></td>
-                {locked ? <td>{l.paid ? <Chip tone="good">{t('Amelipwa', 'Paid')}</Chip> : null} <Btn className="btn-quiet btn-small paid-btn" onClick={() => act.markPaid(l.line_id, !l.paid).catch(fail)}>{l.paid ? t('Tengua', 'Undo') : t('Weka amelipwa', 'Mark paid')}</Btn></td> : null}
-              </tr>
+      {s.lines.length === 0 ? <Empty>{t(`Hakuna mshahara wa mwezi unaolipwa ${monthName(ym)}.`, `No monthly salary is paid in ${monthName(ym)}.`)}</Empty> : (
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead><tr><th>{t('Mfanyakazi', 'Worker')}</th><th>{t('Siku ya mshahara', 'Pay day')}</th><th>{t('Msingi', 'Base')}</th><th>{t('Advansi', 'Advances')}</th><th>{t('Upungufu', 'Shortages')}</th><th>{t('Atalipwa', 'Net pay')}</th><th>{t('Hali', 'Status')}</th></tr></thead>
+            <tbody>
+              {s.lines.map((l) => (
+                <tr key={`${l.worker.id}-${l.start}`}>
+                  <td>
+                    <Link to={`/wafanyakazi/${l.worker.id}?tab=account`} className="linkcell" style={{ textDecoration: 'none' }}><Name>{l.worker.name}</Name></Link>{l.removed ? <> <Chip tone="neutral">{t('Ameondolewa', 'Removed')}</Chip></> : null}
+                    <small className="muted" style={{ display: 'block', fontWeight: 400 }}>{fmtRange(l.start, l.end)}</small>
+                  </td>
+                  <td>{fmtDate(l.pay_day)}</td>
+                  <td>{num(l.base)}</td><td>{l.advances ? `− ${num(l.advances)}` : '0'}</td><td>{l.shortages ? <span className="bad">− {num(l.shortages)}</span> : '0'}</td><td><b>{num(l.net)}</b></td>
+                  <td>{state(l)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr><td>{t('JUMLA', 'TOTAL')}</td><td /><td>{num(s.total_base)}</td><td>{s.total_advances ? `− ${num(s.total_advances)}` : '0'}</td><td>{s.total_shortages ? `− ${num(s.total_shortages)}` : '0'}</td><td>{num(s.total_net)}</td><td /></tr></tfoot>
+          </table>
+        </div>
+      )}
+      {upcoming ? <p className="muted" style={{ marginTop: 10, fontSize: '0.88rem' }}>{t('"Bado": siku ya mshahara haijafika, kwa hiyo kiasi ni cha hadi leo.', '"Not yet": the pay day has not come, so the amounts are up to today.')}</p> : null}
+
+      {s.later.length ? (
+        <section style={{ marginTop: 28 }}>
+          <div className="sec-head"><div><h2>{t('Mishahara yao inayofuata', 'Their next salary')}</h2><p className="muted">{t('Wanaolipwa kwa mwezi ambao hawana mshahara unaolipwa mwezi huu.', 'Monthly-paid workers with no salary paid this month.')}</p></div></div>
+          <ul className="list">
+            {s.later.map((x) => (
+              <li key={x.worker.id}>
+                <Avatar name={x.worker.name} />
+                <span className="li-main"><strong><Name>{x.worker.name}</Name></strong><span>{t('Mwezi wa mshahara', 'Pay month')}: {fmtRange(x.start, x.end)}</span></span>
+                <span className="li-amt">{t('Analipwa', 'Paid on')} {fmtDate(x.pay_day)}</span>
+              </li>
             ))}
-          </tbody>
-          <tfoot><tr><td>{t('JUMLA', 'TOTAL')}</td><td>{num(s.total_base)}</td><td>{s.total_advances ? `− ${num(s.total_advances)}` : '0'}</td><td>{s.total_shortages ? `− ${num(s.total_shortages)}` : '0'}</td><td>{num(s.total_net)}</td>{locked ? <td /> : null}</tr></tfoot>
-        </table>
-      </div>
+          </ul>
+        </section>
+      ) : null}
 
       <section style={{ marginTop: 28 }}>
         <div className="sec-head"><div><h2>{t('Wanaolipwa kila siku', 'Paid daily')}</h2><p className="muted">{t('Hulipwa kila siku kwenye hatua ya Malipo, kwa hiyo hawako kwenye orodha ya mwezi.', 'Paid each day in the Malipo step, so they are not on the monthly list.')}</p></div></div>
@@ -517,7 +569,7 @@ function SalariesTab({ ym }) {
               <tbody>
                 {s.daily.map((x) => (
                   <tr key={x.worker.id}>
-                    <td><Link to={`/wafanyakazi/${x.worker.id}?tab=account`} className="linkcell" style={{ textDecoration: 'none' }}>{x.worker.name}</Link></td>
+                    <td><Link to={`/wafanyakazi/${x.worker.id}?tab=account`} className="linkcell" style={{ textDecoration: 'none' }}><Name>{x.worker.name}</Name></Link></td>
                     <td>{tsh(x.rate)} / {t('siku', 'day')}</td><td>{x.days}</td><td><b>{num(x.total)}</b></td>
                   </tr>
                 ))}
@@ -530,24 +582,26 @@ function SalariesTab({ ym }) {
 
       <section style={{ marginTop: 28 }}>
         <div className="sec-head"><h2>{t('Makato ya upungufu', 'Shortage deductions')}</h2></div>
-        {s.shortages.length === 0 ? <Empty>{t('Hakuna upungufu mwezi huu.', 'No shortages this month.')}</Empty> : (
+        {s.shortages.length === 0 ? <Empty>{t('Hakuna upungufu kwenye mishahara hii.', 'No shortages on these salaries.')}</Empty> : (
           <ul className="list">
             {s.shortages.map((x) => (
               <li key={x.id}>
                 <Chip tone={x.status === 'waived' ? 'neutral' : 'bad'}>{x.status === 'waived' ? t('Imesamehewa', 'Waived') : t('Imekatwa', 'Deducted')}</Chip>
-                <span className="li-main"><strong>{x.worker_name}</strong><span>{fmtDate(x.date)}{x.section ? ` · ${p(SECTIONS[x.section])}` : ''}{x.reason ? ` · ${x.reason}` : ''}</span></span>
+                <span className="li-main"><strong><Name>{x.worker_name}</Name></strong><span>{fmtDate(x.date)}{x.section ? ` · ${p(SECTIONS[x.section])}` : ''}{x.reason ? ` · ${x.reason}` : ''}</span></span>
                 <span className="li-amt" style={x.status === 'waived' ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{tsh(x.amount)}</span>
-                {!locked ? <Btn className="btn-quiet btn-small" onClick={() => act.setShortage(x.id, x.status === 'waived' ? 'applied' : 'waived').catch(fail)}>{x.status === 'waived' ? t('Rudisha makato', 'Deduct again') : t('Samehe', 'Waive')}</Btn> : null}
+                {!x.locked ? <Btn className="btn-quiet btn-small" onClick={() => act.setShortage(x.id, x.status === 'waived' ? 'applied' : 'waived').catch(fail)}>{x.status === 'waived' ? t('Rudisha makato', 'Deduct again') : t('Samehe', 'Waive')}</Btn> : null}
               </li>
             ))}
           </ul>
         )}
       </section>
 
-      <Modal open={confirm} onClose={() => setConfirm(false)} title={t('Idhinisha orodha?', 'Approve the list?')} description={t('Baada ya kuidhinisha, makato na sheria za siku maalum hufungwa na haziwezi kubadilishwa.', 'After approval, deductions and the special-day rules are locked.')}>
+      <Modal open={open} onClose={() => setOpen(false)}
+        title={pick ? t(<>Idhinisha mshahara wa <Name>{pick.worker.name}</Name>?</>, <>Approve <Name>{pick.worker.name}</Name>&rsquo;s salary?</>) : ''}
+        description={pick ? t(`${fmtRange(pick.start, pick.end)}: ${tsh(pick.net)}. Baada ya kuidhinisha kiasi hiki hakibadiliki, na advansi na upungufu wa siku hizo hufungwa.`, `${fmtRange(pick.start, pick.end)}: ${tsh(pick.net)}. Once approved this amount is fixed, and advances and shortages on those days are locked.`) : ''}>
         <div className="actions">
-          <Btn onClick={() => setConfirm(false)}>{t('Ghairi', 'Cancel')}</Btn>
-          <Btn className="btn-primary" onClick={async () => { try { await act.approveSalary(ym); setConfirm(false); toast.success(t('Orodha imeidhinishwa.', 'Salary list approved.')); } catch (e) { fail(e); } }}>{t('Idhinisha', 'Approve')}</Btn>
+          <Btn onClick={() => setOpen(false)}>{t('Ghairi', 'Cancel')}</Btn>
+          <Btn className="btn-primary" loading={busy} onClick={approve}>{t('Idhinisha', 'Approve')}</Btn>
         </div>
       </Modal>
     </>

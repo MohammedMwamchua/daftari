@@ -493,6 +493,12 @@ a { color: inherit; }
 .att-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .att-who > span:not(.av) { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
 .att-who small { color: var(--ink-3); }
+/* Mahudhurio: a small red mark beside the name of whoever is marked late */
+.late-badge {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; vertical-align: 2px;
+  font-size: 0.66rem; font-weight: 700; letter-spacing: 0.02em; line-height: 1.5; color: #fff; background: var(--bad);
+}
+[data-theme='dark'] .late-badge { color: #2a0b08; }
 @media (max-width: 560px) { .att-row { grid-template-columns: minmax(0, 1fr); } }
 /* worker Pay tab: monthly salary or daily pay, as two choice cards */
 .pay-choice { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 12px; } /* side by side only when there is room */
@@ -645,6 +651,8 @@ a { color: inherit; }
 .tbl tbody tr { transition: background 0.2s; } .tbl tbody tr:hover { background: color-mix(in srgb, var(--brass-500) 5%, var(--surface)); }
 .tbl .linkcell { border: 0; background: none; font-weight: 600; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 4px; padding: 0; }
 .tbl .linkcell:hover { text-decoration-color: var(--brass-500); }
+/* the salary list: each pay month's state and its one action, side by side */
+.sal-state { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .tbl tfoot td { font-family: var(--font-display); font-weight: 700; background: color-mix(in srgb, var(--emerald-500) 6%, var(--surface-2)); border-top: 1px solid var(--line); }
 .tbl .bad { color: var(--bad); } .tbl .good { color: var(--good); }
 .catbars { display: flex; flex-direction: column; gap: 14px; }

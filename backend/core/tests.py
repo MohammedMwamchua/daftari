@@ -2,7 +2,7 @@ import io
 import sqlite3
 import tempfile
 from contextlib import closing
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -24,7 +24,7 @@ class RulesTest(APITestCase):
         Settings.load()
         ExpenseCategory.objects.create(key='gesi', name_sw='Gesi', name_en='Gas')
         self.today = svc.today()
-        long_ago = self.today - timedelta(days=60)
+        long_ago = svc.add_months(self.today, -2)  # the monthly cashier then has one pay month due by today
         mk = lambda name, role, pay, rate, off: Worker.objects.create(
             name=name, role=role, pay_type=pay, rate=rate, day_off=off, joined_on=long_ago)
         # day off is set to a weekday that is never "today" so marking is required
@@ -70,13 +70,23 @@ class RulesTest(APITestCase):
         self.sales()
         self.client.put(f'/api/days/{self.d}/cash-count/', {'banda': 50000 + 98000, 'mgahawa': 280000}, format='json')
         self.mark_all()
-        sh = self.client.post(f'/api/days/{self.d}/close/').data['shortages'][0]
+        sh = self.client.post(f'/api/days/{self.d}/close/').data['shortages'][0]  # dated today: the pay month starting today
         ym = svc.ym_of(self.today)
         self.assertEqual(self.client.patch(f'/api/shortages/{sh["id"]}/', {'status': 'waived'}, format='json').status_code, 200)
         self.assertEqual(self.client.get(f'/api/workers/{self.cashier.id}/account/').data['shortages'], 0)
-        self.assertEqual(self.client.post(f'/api/salary/{ym}/approve/').status_code, 200)
-        self.assertEqual(self.client.patch(f'/api/shortages/{sh["id"]}/', {'status': 'applied'}, format='json').status_code, 409)
-        self.assertEqual(self.client.post('/api/advances/', {'worker_id': self.cook.id, 'amount': 1000}, format='json').status_code, 409)
+
+        # the pay month paid this month is due; approving it locks its days, and only its days
+        line = next(l for l in self.client.get(f'/api/salary/{ym}/').data['lines'] if l['worker']['id'] == self.cashier.id)
+        self.assertEqual(line['status'], 'due')
+        self.assertLessEqual(line['pay_day'], self.d)
+        r = self.client.post(f'/api/salary/{ym}/approve/', {'worker_id': self.cashier.id, 'start': line['start']}, format='json')
+        self.assertEqual(r.status_code, 200, r.data)
+        r = self.client.post('/api/advances/', {'worker_id': self.cashier.id, 'amount': 1000, 'date': line['end']}, format='json')
+        self.assertEqual((r.status_code, r.data['code']), (409, 'salary_locked'))
+        self.assertEqual(self.client.post('/api/advances/', {'worker_id': self.cashier.id, 'amount': 1000}, format='json').status_code, 201)
+        self.assertEqual(self.client.patch(f'/api/shortages/{sh["id"]}/', {'status': 'applied'}, format='json').status_code, 200)
+        # a daily-paid worker has no salary to lock
+        self.assertEqual(self.client.post('/api/advances/', {'worker_id': self.cook.id, 'amount': 1000, 'date': line['end']}, format='json').status_code, 201)
 
     def test_change_password(self):
         r = self.client.post('/api/auth/change-password/', {'current_password': 'wrong', 'new_password': 'NewPass123!'}, format='json')
@@ -141,53 +151,6 @@ class RulesTest(APITestCase):
         r = self.client.post('/api/workers/', {'name': 'Bila Tarehe', 'role': 'mhudumu', 'pay_type': 'daily', 'rate': 6000}, format='json')
         self.assertEqual(r.data['joined_on'], self.today.isoformat())  # defaults to today
 
-    def test_monthly_salary_prorated_for_partial_month(self):
-        # Use the previous, already-finished month so "today" truncation can't interfere.
-        first_this, _ = svc.month_bounds(svc.ym_of(self.today))
-        prev_last = first_this - timedelta(days=1)
-        ym = svc.ym_of(prev_last)
-        first, last = svc.month_bounds(ym)
-        days_in_month = (last - first).days + 1
-        join_day = first + timedelta(days=days_in_month - 5)  # registered with 5 days left in the month
-        w = Worker.objects.create(name='Mwezi Nusu', role='mhudumu', pay_type='monthly', rate=300000,
-                                   day_off=None, joined_on=join_day)
-        d = join_day
-        while d <= last:
-            Attendance.objects.create(worker=w, date=d, status='present')
-            d += timedelta(days=1)
-        rules = Settings.load().rules
-        f = svc.salary_figures(w, ym, rules)
-        employed_days = (last - join_day).days + 1
-        expected = max(0, 300000 - round(300000 / 30 * (days_in_month - employed_days)))
-        self.assertEqual(f['base'], expected)
-        self.assertLess(f['base'], 300000)  # the registration date actually prorates the salary
-
-    def test_monthly_salary_prorated_for_mid_month_removal(self):
-        first_this, _ = svc.month_bounds(svc.ym_of(self.today))
-        prev_last = first_this - timedelta(days=1)
-        ym = svc.ym_of(prev_last)
-        first, last = svc.month_bounds(ym)
-        days_in_month = (last - first).days + 1
-        removed = first + timedelta(days=4)  # only worked the first 5 days of the month
-        w = Worker.objects.create(name='Aliondoka Mapema', role='mhudumu', pay_type='monthly', rate=300000,
-                                   day_off=None, joined_on=first - timedelta(days=200), active=False, removed_on=removed)
-        d = first
-        while d <= removed:
-            Attendance.objects.create(worker=w, date=d, status='present')
-            d += timedelta(days=1)
-        rules = Settings.load().rules
-        f = svc.salary_figures(w, ym, rules)
-        employed_days = (removed - first).days + 1
-        expected = max(0, 300000 - round(300000 / 30 * (days_in_month - employed_days)))
-        self.assertEqual(f['base'], expected)
-        self.assertLess(f['base'], 300000)
-
-    def test_monthly_salary_not_prorated_just_because_month_is_not_over(self):
-        ym = svc.ym_of(self.today)
-        first, last = svc.month_bounds(ym)
-        # self.cashier joined long before this month and has not been removed.
-        self.assertEqual(svc.month_employed_days(self.cashier, first, last), (last - first).days + 1)
-
     def test_unpaid_salary_carries_forward(self):
         # the monthly-paid cashier: daily-paid workers are paid each day and are not on the monthly list
         self.sales()
@@ -195,8 +158,11 @@ class RulesTest(APITestCase):
         self.mark_all()
         self.client.post(f'/api/days/{self.d}/close/')
         ym = svc.ym_of(self.today)
-        r = self.client.post(f'/api/salary/{ym}/approve/')
-        self.assertEqual(r.status_code, 200)
+        self.assertIn(self.cashier.id, [x['worker_id'] for x in self.client.get(f'/api/days/{self.d}/').data['salaries_due']])
+        start = next(l['start'] for l in self.client.get(f'/api/salary/{ym}/').data['lines'] if l['worker']['id'] == self.cashier.id)
+        r = self.client.post(f'/api/salary/{ym}/approve/', {'worker_id': self.cashier.id, 'start': start}, format='json')
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual(self.client.get(f'/api/days/{self.d}/').data['salaries_due'], [])
         net = next(l['net'] for l in r.data['lines'] if l['worker']['id'] == self.cashier.id)
         self.assertGreater(net, 0)
 
@@ -382,11 +348,112 @@ class RulesTest(APITestCase):
             Attendance.objects.update_or_create(worker=self.cashier, date=d, defaults={'status': 'absent' if n < 2 else 'present'})
             DailyPayment.objects.create(worker=self.cook, date=d, amount=8000 if n == 0 else 10000, paid_from='simu')
             marked.append(d)
-        f = svc.salary_figures(self.cook, ym, Settings.load().rules)
+        f = svc.daily_figures(self.cook, ym)
         self.assertEqual((f['base'], f['net']), (10000 * len(marked) - (2000 if marked else 0), 0))
-        g = svc.salary_figures(self.cashier, ym, Settings.load().rules)
-        absent = min(2, len(marked))
-        self.assertEqual(g['base'], 300000 - round(300000 / 30 * absent))
+        # the cashier's pay month paid this month: the two absent days come off at 1/30 each
+        [pm] = svc.pay_months_due(self.cashier, ym)
+        self.assertTrue(pm.full and pm.pay_day <= self.today)
+        Attendance.objects.filter(worker=self.cashier).delete()
+        for d in [pm.start + timedelta(days=i) for i in range(10) if svc.js_dow(pm.start + timedelta(days=i)) != self.cashier.day_off][:2]:
+            Attendance.objects.create(worker=self.cashier, date=d, status='absent')
+        g = svc.pay_month_figures(self.cashier, pm, Settings.load().rules)
+        self.assertEqual(g['base'], 300000 - round(300000 / 30 * 2))
+
+
+class PayMonthsTest(APITestCase):
+    """A monthly salary runs from the day the worker started, is paid in full, and is approved on their own pay day."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user('m', password='x')
+        self.client.force_authenticate(self.user)
+        self.rules = Settings.load().rules
+
+    def monthly(self, joined, **kw):
+        return Worker.objects.create(name=f'Mwezi {Worker.objects.count()}', role='mhudumu', pay_type='monthly',
+                                     rate=300000, day_off=None, joined_on=joined, **kw)
+
+    def test_a_month_on_keeps_the_start_day(self):
+        self.assertEqual(svc.add_months(date(2026, 1, 31), 1), date(2026, 2, 28))
+        self.assertEqual(svc.add_months(date(2028, 1, 31), 1), date(2028, 2, 29))
+        self.assertEqual(svc.add_months(date(2026, 1, 31), 2), date(2026, 3, 31))  # back to the 31st, not stuck on the 28th
+        self.assertEqual(svc.add_months(date(2026, 11, 12), 2), date(2027, 1, 12))
+
+    def test_paid_in_full_a_month_after_starting(self):
+        w = self.monthly(date(2026, 3, 12))
+        self.assertEqual(svc.pay_months_due(w, '2026-03'), [])  # nothing in the month they started
+        [pm] = svc.pay_months_due(w, '2026-04')
+        self.assertEqual((pm.start, pm.end, pm.pay_day), (date(2026, 3, 12), date(2026, 4, 11), date(2026, 4, 12)))
+        self.assertEqual(svc.pay_month_figures(w, pm, self.rules)['base'], 300000)  # no cut for starting on the 12th
+        [nxt] = svc.pay_months_due(w, '2026-05')
+        self.assertEqual((nxt.start, nxt.end), (date(2026, 4, 12), date(2026, 5, 11)))
+
+        first = self.monthly(date(2026, 1, 1))
+        self.assertEqual([(p.start, p.end, p.pay_day) for p in svc.pay_months_due(first, '2026-02')],
+                         [(date(2026, 1, 1), date(2026, 1, 31), date(2026, 2, 1))])
+        last = self.monthly(date(2026, 1, 31))
+        self.assertEqual([(p.end, p.pay_day) for p in svc.pay_months_due(last, '2026-02')], [(date(2026, 2, 27), date(2026, 2, 28))])
+
+        lines = self.client.get('/api/salary/2026-04/').data['lines']  # in pay-day order, each a full salary
+        self.assertEqual([(l['worker']['id'], l['start'], l['end'], l['pay_day'], l['base']) for l in lines],
+                         [(first.id, '2026-03-01', '2026-03-31', '2026-04-01', 300000),
+                          (w.id, '2026-03-12', '2026-04-11', '2026-04-12', 300000),
+                          (last.id, '2026-03-31', '2026-04-29', '2026-04-30', 300000)])
+
+    def test_absences_and_leaving(self):
+        w = self.monthly(date(2026, 1, 12), active=False, removed_on=date(2026, 3, 20))
+        march = svc.pay_months_due(w, '2026-03')
+        self.assertEqual([(p.start, p.end, p.pay_day, p.full) for p in march],
+                         [(date(2026, 2, 12), date(2026, 3, 11), date(2026, 3, 12), True),
+                          (date(2026, 3, 12), date(2026, 3, 20), date(2026, 3, 21), False)])
+        self.assertEqual(svc.pay_months_due(w, '2026-04'), [])  # nothing after the last day
+        Attendance.objects.create(worker=w, date=date(2026, 2, 20), status='absent')
+        whole, cut_short = (svc.pay_month_figures(w, p, self.rules)['base'] for p in march)
+        self.assertEqual(whole, 300000 - 10000)  # an absent day still comes off
+        self.assertEqual(cut_short, 90000)  # 9 days at 1/30 of the salary
+
+    def test_each_worker_is_approved_on_their_own_pay_day(self):
+        today = svc.today()
+        ym = svc.ym_of(today)
+        old = self.monthly(svc.add_months(today, -2))  # one pay month due by today
+        new = self.monthly(today)  # first pay day a month from today
+        self.assertEqual([x['worker_id'] for x in self.client.get(f'/api/days/{today}/').data['salaries_due']], [old.id])
+
+        sal = self.client.get(f'/api/salary/{ym}/').data
+        lines = {l['worker']['id']: l for l in sal['lines']}
+        self.assertEqual(lines[old.id]['status'], 'due')
+        self.assertLessEqual(lines[old.id]['pay_day'], today.isoformat())
+        self.assertNotIn(new.id, lines)
+        self.assertEqual([(x['worker']['id'], x['pay_day']) for x in sal['later']], [(new.id, svc.add_months(today, 1).isoformat())])
+
+        nxt = svc.ym_of(svc.add_months(today, 1))
+        upcoming = {l['worker']['id']: l for l in self.client.get(f'/api/salary/{nxt}/').data['lines']}[new.id]
+        self.assertEqual(upcoming['status'], 'upcoming')
+        r = self.client.post(f'/api/salary/{nxt}/approve/', {'worker_id': new.id, 'start': upcoming['start']}, format='json')
+        self.assertEqual((r.status_code, r.data['code']), (409, 'salary_not_due'))
+
+        r = self.client.post(f'/api/salary/{ym}/approve/', {'worker_id': old.id, 'start': lines[old.id]['start']}, format='json')
+        self.assertEqual(r.status_code, 200, r.data)
+        self.assertEqual([l['status'] for l in r.data['lines'] if l['worker']['id'] == old.id], ['approved'])
+        r = self.client.post(f'/api/salary/{ym}/approve/', {'worker_id': old.id, 'start': lines[old.id]['start']}, format='json')
+        self.assertEqual((r.status_code, r.data['code']), (409, 'salary_locked'))
+        self.assertEqual(self.client.get(f'/api/days/{today}/').data['salaries_due'], [])
+
+        # the special-day rules can still change: they apply to salaries not yet approved
+        r = self.client.patch('/api/meta/', {'rules': {'permission': {'cut': False}}}, format='json')
+        self.assertEqual(r.status_code, 200)
+
+    def test_moving_to_a_salary_starts_the_pay_months_that_day(self):
+        today = svc.today()
+        w = Worker.objects.create(name='Siku', role='mpishi', pay_type='daily', rate=10000, day_off=None,
+                                  joined_on=today - timedelta(days=200))
+        r = self.client.patch(f'/api/workers/{w.id}/', {'pay_type': 'monthly', 'rate': 300000}, format='json')
+        self.assertEqual(r.data['pay_from'], today.isoformat())
+        w.refresh_from_db()
+        self.assertEqual(svc.pay_months_due(w, svc.ym_of(today)), [])  # nothing owed for the months paid daily
+        [pm] = svc.pay_months_due(w, svc.ym_of(svc.add_months(today, 1)))
+        self.assertEqual(pm.start, today)
+        r = self.client.patch(f'/api/workers/{w.id}/', {'pay_type': 'daily', 'rate': 10000}, format='json')
+        self.assertEqual(r.data['pay_from'], w.joined_on.isoformat())
 
 
 class OpinionsTest(APITestCase):

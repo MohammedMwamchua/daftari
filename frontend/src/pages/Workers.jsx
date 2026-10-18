@@ -7,7 +7,7 @@ import { useAccount, useActions, useErr, useMeta, useWorker, useWorkers } from '
 import { useI } from '../i18n.jsx';
 import { num, parseISO, sum, tsh } from '../format.js';
 import { PAID_FROM, REMOVE_REASONS, ROLES, SECTIONS, STATUS } from '../vocab.js';
-import { Avatar, Btn, Callout, Chip, Empty, Leader, MoneyInput, Page, PageSkeleton, Rise, Seg, SelectField, Tabs, TextField } from '../components/ui.jsx';
+import { Avatar, Btn, Callout, Chip, Empty, Leader, MoneyInput, Name, Page, PageSkeleton, Rise, Seg, SelectField, Tabs, TextField } from '../components/ui.jsx';
 import { Modal } from '../components/Modal.jsx';
 
 /* ------------------------------------------------------------ list */
@@ -50,7 +50,7 @@ export function WorkersList() {
               <Link to={`/wafanyakazi/${w.id}`} className="worker-card">
                 <div className="top">
                   <Avatar name={w.name} />
-                  <div className="who"><h3>{w.name}</h3><p className="muted">{p(ROLES[w.role])}</p></div>
+                  <div className="who"><h3><Name>{w.name}</Name></h3><p className="muted">{p(ROLES[w.role])}</p></div>
                   <span className="go" aria-hidden="true"><CaretRight size={15} weight="bold" /></span>
                 </div>
                 <div className="chips">
@@ -76,7 +76,7 @@ export function WorkersList() {
               {removed.map((w) => (
                 <li key={w.id}>
                   <Avatar name={w.name} />
-                  <span className="li-main"><strong>{w.name}</strong><span>{p(ROLES[w.role])} · {p(REMOVE_REASONS[w.removed_reason] || REMOVE_REASONS.other)}</span></span>
+                  <span className="li-main"><strong><Name>{w.name}</Name></strong><span>{p(ROLES[w.role])} · {p(REMOVE_REASONS[w.removed_reason] || REMOVE_REASONS.other)}</span></span>
                   <Btn className="btn-quiet btn-small" onClick={() => act.restoreWorker(w.id).then(() => toast.success(t('Amerudishwa.', 'Restored.'))).catch(fail)}><ArrowCounterClockwise size={16} />{t('Rudisha', 'Restore')}</Btn>
                 </li>
               ))}
@@ -156,7 +156,7 @@ export function WorkerDetail() {
       <header className="detail-head">
         <Avatar name={w.name} size="lg" />
         <div>
-          <h1>{w.name}</h1>
+          <h1><Name>{w.name}</Name></h1>
           <div className="chips" style={{ marginTop: 8 }}>
             <Chip>{p(ROLES[w.role])}</Chip>
             <Chip tone="brass">{w.pay_type === 'monthly' ? t('Mshahara', 'Monthly') : t('Kila siku', 'Daily')}: {tsh(w.rate)}</Chip>
@@ -241,7 +241,7 @@ function Overview({ w, today }) {
           <section className="panel">
             <h3>{t('Ondoa mfanyakazi', 'Remove worker')}</h3>
             <p className="muted" style={{ margin: '6px 0 14px' }}>{t('Hafutwi. Historia ya mishahara na mahudhurio inabaki.', 'Not erased. Salary and attendance history stays.')}</p>
-            <Btn className="btn-danger" onClick={() => setRemoving(true)}><UserMinus size={18} weight="duotone" />{t('Ondoa', 'Remove')} {w.name.split(' ')[0]}</Btn>
+            <Btn className="btn-danger" onClick={() => setRemoving(true)}><UserMinus size={18} weight="duotone" />{t('Ondoa', 'Remove')} <Name>{w.name.split(' ')[0]}</Name></Btn>
           </section>
         ) : null}
       </div>
@@ -259,7 +259,7 @@ function RemoveModal({ w, open, onClose, onDone }) {
     try { await act.removeWorker(w.id, reason); toast.success(t('Mfanyakazi ameondolewa.', 'Worker removed.')); onClose(); onDone(); } catch (e) { fail(e); }
   };
   return (
-    <Modal open={open} onClose={onClose} title={t(`Ondoa ${w.name}?`, `Remove ${w.name}?`)} description={t('Atatoweka kwenye orodha za kila siku, lakini historia inabaki.', 'They leave the daily lists, but history stays.')}>
+    <Modal open={open} onClose={onClose} title={<>{t('Ondoa', 'Remove')} <Name>{w.name}</Name>?</>} description={t('Atatoweka kwenye orodha za kila siku, lakini historia inabaki.', 'They leave the daily lists, but history stays.')}>
       <div className="stack">
         <div className="field"><span className="field-label">{t('Sababu', 'Reason')}</span>
           <Seg full label={t('Sababu', 'Reason')} value={reason} onChange={setReason} options={Object.entries(REMOVE_REASONS).map(([k, v]) => [k, p(v)])} /></div>
@@ -313,9 +313,16 @@ function Leave({ w }) {
   );
 }
 
-/* How a worker is paid: a monthly salary on the month-end list, or daily pay entered in the close-day Malipo step. */
+/* The same day a month on; a day the month lacks becomes its last day (31 Jan → 28 Feb), as on the server. */
+const monthOn = (iso) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const [ny, nm] = m === 12 ? [y + 1, 1] : [y, m + 1];
+  return `${ny}-${String(nm).padStart(2, '0')}-${String(Math.min(d, new Date(ny, nm, 0).getDate())).padStart(2, '0')}`;
+};
+
+/* How a worker is paid: a monthly salary counted from the day they started, or daily pay entered in the close-day Malipo step. */
 function PayTab({ w, today }) {
-  const { t, monthName } = useI();
+  const { t, fmtDate, fmtRange, monthName } = useI();
   const act = useActions();
   const fail = useErr();
   const ym = today.slice(0, 7);
@@ -328,7 +335,8 @@ function PayTab({ w, today }) {
   const month = monthName(ym);
   const options = [
     ['monthly', CalendarBlank, t('Mshahara wa mwezi', 'Monthly salary'),
-      t('Yuko kwenye orodha ya mishahara ya mwisho wa mwezi. Siku asizofanya kazi hukatwa (mshahara ÷ 30).', 'On the month-end salary list. Days not worked are deducted (salary ÷ 30).')],
+      t('Analipwa mshahara kamili kila mwezi kuanzia siku aliyoanza kazi: akianza tarehe 12, analipwa tarehe 12 ya kila mwezi unaofuata. Siku asizofanya kazi hukatwa (mshahara ÷ 30).',
+        'Paid a full salary each month, counted from the day they started: someone who starts on the 12th is paid on the 12th of each month after. Days not worked are deducted (salary ÷ 30).')],
     ['daily', Coins, t('Malipo ya kila siku', 'Daily pay'),
       t('Hulipwa kila siku. Unaandika kiasi kwenye hatua ya Malipo unapofunga siku.', 'Paid every day. You enter the amount in the Malipo step when you close the day.')],
   ];
@@ -337,15 +345,17 @@ function PayTab({ w, today }) {
     setBusy(true);
     try { await act.patchWorker(w.id, { pay_type: type, rate }); toast.success(t('Malipo yamebadilishwa.', 'Pay updated.')); } catch (ex) { fail(ex); } finally { setBusy(false); }
   };
+  const from = w.joined_on > today ? w.joined_on : today;  // a new salary's pay months start the day it is switched on
   const warning = !switching ? null : type === 'daily'
-    ? t(`${w.name} ataondolewa kwenye orodha ya mishahara ya ${month} na atalipwa kila siku kwenye hatua ya Malipo. Siku alizokwisha fanya kazi mwezi huu hazitalipwa kwenye orodha, kwa hiyo zilipe kupitia Malipo.`,
-      `${w.name} leaves the ${month} salary list and is paid each day in the Malipo step. Days already worked this month won't be paid on the list, so pay them through Malipo.`)
-    : t(`${w.name} ataingia kwenye orodha ya mishahara ya ${month} kwa mshahara wa mwezi mzima.${a?.base ? ` Malipo ya siku aliyokwisha pokea mwezi huu (${tsh(a.base)}) hayatakatwa yenyewe; yaandike kama advansi kama yanapaswa kukatwa.` : ''}`,
-      `${w.name} joins the ${month} salary list on a full monthly salary.${a?.base ? ` Daily pay already received this month (${tsh(a.base)}) is not taken off automatically; record it as an advance if it should be.` : ''}`);
+    ? <><Name>{w.name}</Name> {t('ataondoka kwenye orodha ya mishahara na atalipwa kila siku kwenye hatua ya Malipo. Siku alizokwisha fanya kazi katika mwezi wake wa mshahara unaoendelea hazitalipwa kwenye orodha, kwa hiyo zilipe kupitia Malipo.',
+      "leaves the salary list and is paid each day in the Malipo step. Days already worked in the pay month running now won't be paid on the list, so pay them through Malipo.")}
+      {a?.waiting?.length ? ` ${t('Idhinisha kwanza mshahara wake unaosubiri, la sivyo nao utaondoka kwenye orodha.', 'Approve the salary waiting for approval first, or it leaves the list too.')}` : ''}</>
+    : <><Name>{w.name}</Name> {t(`ataingia kwenye orodha ya mishahara. Mwezi wake wa mshahara unaanza ${fmtDate(from)}, na atalipwa mshahara kamili tarehe ${fmtDate(monthOn(from))}, kisha tarehe hiyo kila mwezi.`,
+      `joins the salary list. Their pay month starts on ${fmtDate(from)}, the full salary is paid on ${fmtDate(monthOn(from))}, then on that date each month.`)}</>;
   return (
     <div className="two" style={{ marginTop: 0 }}>
       <section className="panel stack">
-        <div className="panel-head" style={{ marginBottom: 0 }}><div><h2>{t('Analipwa vipi?', 'How is this worker paid?')}</h2><p className="muted">{t(`Chagua jinsi ${w.name} anavyolipwa.`, `Choose how ${w.name} is paid.`)}</p></div></div>
+        <div className="panel-head" style={{ marginBottom: 0 }}><div><h2>{t('Analipwa vipi?', 'How is this worker paid?')}</h2><p className="muted">{t('Chagua jinsi', 'Choose how')} <Name>{w.name}</Name> {t('anavyolipwa.', 'is paid.')}</p></div></div>
         <div className="pay-choice" role="radiogroup" aria-label={t('Aina ya malipo', 'Pay type')}>
           {options.map(([v, Icon, title, desc]) => (
             <label key={v} className="pay-option">
@@ -357,19 +367,21 @@ function PayTab({ w, today }) {
           ))}
         </div>
         <MoneyInput label={type === 'monthly' ? t('Mshahara kwa mwezi', 'Monthly salary') : t('Kiwango cha siku', 'Daily rate')} value={rate} onChange={setRate}
-          hint={type === 'monthly' ? t('Kiwango kipya kinahesabiwa kwa mwezi mzima wa sasa.', 'A new amount counts for the whole current month.')
+          hint={type === 'monthly' ? t('Kiwango kipya kinatumika kwa mishahara ambayo bado haijaidhinishwa, pamoja na mwezi wa mshahara unaoendelea.', 'A new amount counts for every salary not yet approved, including the pay month running now.')
             : t('Kinaonekana kama pendekezo kwenye hatua ya Malipo; kiasi halisi unaandika kila siku.', 'Shown as a suggestion in the Malipo step; you type the actual amount each day.')} />
-        {warning ? <Callout tone="warn">{warning}{a?.locked ? ` ${t(`Orodha ya ${month} imeshaidhinishwa, kwa hiyo mabadiliko yataonekana kwenye orodha kuanzia mwezi ujao.`, `The ${month} list is already approved, so the list changes from next month.`)}` : ''}</Callout> : null}
+        {warning ? <Callout tone="warn">{warning}</Callout> : null}
         <div><Btn className="btn-primary" disabled={!changed} loading={busy} onClick={save}><CheckCircle size={18} weight="bold" />{t('Hifadhi', 'Save')}</Btn></div>
       </section>
       <section className="panel">
-        <div className="panel-head"><h2>{t(`Mwezi huu: ${month}`, `This month: ${month}`)}</h2></div>
+        <div className="panel-head"><h2>{w.pay_type === 'monthly' ? t('Mwezi wa mshahara unaoendelea', 'The pay month running now') : t(`Mwezi huu: ${month}`, `This month: ${month}`)}</h2></div>
         {!a ? <PageSkeleton /> : (
           <div className="ledger flat">
             <Leader label={t('Analipwa sasa', 'Currently paid')} value={w.pay_type === 'monthly' ? t('Kwa mwezi', 'Monthly') : t('Kila siku', 'Daily')} />
             <Leader label={w.pay_type === 'monthly' ? t('Mshahara kwa mwezi', 'Monthly salary') : t('Kiwango cha siku', 'Daily rate')} value={tsh(w.rate)} />
             {w.pay_type === 'monthly' ? (
               <>
+                {a.period ? <Leader label={t('Mwezi wa mshahara', 'Pay month')} value={fmtRange(a.period.start, a.period.end)} /> : null}
+                {a.period ? <Leader label={t('Siku ya mshahara', 'Pay day')} value={fmtDate(a.period.pay_day)} /> : null}
                 <Leader label={t('Mshahara hadi sasa', 'Salary so far')} value={tsh(a.base)} />
                 <Leader strong label={t('Atalipwa', 'Net pay')} value={tsh(a.net)} />
               </>
@@ -424,7 +436,7 @@ function DailyAccount({ a, w }) {
 }
 
 function AccountTab({ w, ym, today }) {
-  const { t, p, fmtDate, monthName } = useI();
+  const { t, p, fmtDate, fmtRange } = useI();
   const { data: a } = useAccount(w.id, ym);
   const act = useActions();
   const fail = useErr();
@@ -453,7 +465,10 @@ function AccountTab({ w, ym, today }) {
     <div className="two" style={{ marginTop: 0 }}>
       <div className="stack">
         <div className="paycard">
-          <p style={{ opacity: 0.75, fontWeight: 500 }}>{t('Anayepaswa kulipwa sasa', 'Payable now')}</p>
+          <p style={{ opacity: 0.75, fontWeight: 500 }}>
+            {a.period ? t(`Mwezi wa mshahara: ${fmtRange(a.period.start, a.period.end)} · analipwa ${fmtDate(a.period.pay_day)}`, `Pay month: ${fmtRange(a.period.start, a.period.end)} · paid on ${fmtDate(a.period.pay_day)}`)
+              : t('Anayepaswa kulipwa sasa', 'Payable now')}
+          </p>
           <p className="bignum"><span className="cur">TSh</span>{num(a.net)}</p>
           <div className="trio">
             <div><small>{t('Mshahara wa msingi', 'Base pay')}</small><b>{tsh(a.base)}</b></div>
@@ -461,14 +476,20 @@ function AccountTab({ w, ym, today }) {
             <div><small>{t('Upungufu', 'Shortages')}</small><b>− {tsh(a.shortages)}</b></div>
           </div>
         </div>
+        {a.waiting.map((x) => (
+          <Callout key={x.start} tone="warn">
+            <strong>{t(`Mshahara wa ${fmtRange(x.start, x.end)} unasubiri kuidhinishwa: ${tsh(x.net)}.`, `The salary for ${fmtRange(x.start, x.end)} is waiting for approval: ${tsh(x.net)}.`)}</strong>{' '}
+            <Link to={`/fedha?tab=salaries&mwezi=${x.month}`} className="btn-ghost" style={{ padding: 0 }}>{t('Nenda kwenye orodha', 'Go to the list')}</Link>
+          </Callout>
+        ))}
         {a.owed_by_company ? (
           <Callout tone="bad">
             <strong>{t(`Anaidai kampuni ${tsh(a.owed_by_company)}`, `Owed ${tsh(a.owed_by_company)} by the company`)}</strong>
-            {t(' — mshahara wa miezi iliyopita ambao bado haujalipwa.', ' — approved salary from previous months that has not been paid yet.')}
+            {t(' — mshahara ulioidhinishwa ambao bado haujalipwa.', ' — approved salary that has not been paid yet.')}
             <div className="stack" style={{ marginTop: 10, gap: 6 }}>
               {a.unpaid_months.map((m) => (
                 <div key={m.line_id} className="row" style={{ justifyContent: 'space-between', gap: 10 }}>
-                  <span>{monthName(m.month)}: <strong>{tsh(m.net)}</strong></span>
+                  <span>{fmtRange(m.start, m.end)}: <strong>{tsh(m.net)}</strong></span>
                   <Btn className="btn-quiet btn-small" onClick={() => act.markPaid(m.line_id, true).then(() => toast.success(t('Imewekwa amelipwa.', 'Marked paid.'))).catch(fail)}>
                     {t('Weka amelipwa', 'Mark paid')}
                   </Btn>
@@ -477,7 +498,7 @@ function AccountTab({ w, ym, today }) {
             </div>
           </Callout>
         ) : null}
-        {a.locked ? <Callout tone="info">{t('Orodha ya mishahara ya mwezi huu imeidhinishwa. Makato yamefungwa.', 'This month’s salary list is approved. Deductions are locked.')}</Callout> : (
+        {a.locked ? <Callout tone="info">{t('Mshahara wa mwezi huu wa mshahara umeidhinishwa. Makato yamefungwa.', 'This pay month’s salary is approved. Deductions are locked.')}</Callout> : (
           <>
             <form className="panel stack" onSubmit={putShort}>
               <h3>{t('Weka upungufu kwenye akaunti', 'Write a shortage on this account')}</h3>
@@ -487,7 +508,7 @@ function AccountTab({ w, ym, today }) {
             </form>
             <form className="panel stack" onSubmit={putAdv}>
               <h3>{t('Advansi mpya', 'New advance')}</h3>
-              <MoneyInput label={t('Kiasi', 'Amount')} value={adv} onChange={setAdv} hint={t('Itakatwa mwisho wa mwezi.', 'Deducted at the end of the month.')} />
+              <MoneyInput label={t('Kiasi', 'Amount')} value={adv} onChange={setAdv} hint={t('Itakatwa kwenye mshahara wa mwezi huu wa mshahara.', 'Taken off this pay month’s salary.')} />
               <div><Btn type="submit" className="btn-quiet">{t('Weka advansi', 'Save advance')}</Btn></div>
             </form>
           </>

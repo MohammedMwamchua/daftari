@@ -72,7 +72,7 @@ def worker_json(w, unpaid=None):
     unpaid = svc.unpaid_salary_by_worker() if unpaid is None else unpaid
     return {
         'id': w.id, 'name': w.name, 'role': w.role, 'phone': w.phone, 'pay_type': w.pay_type, 'rate': w.rate,
-        'day_off': w.day_off, 'joined_on': w.joined_on.isoformat(), 'active': w.active,
+        'day_off': w.day_off, 'joined_on': w.joined_on.isoformat(), 'pay_from': svc.pay_anchor(w).isoformat(), 'active': w.active,
         'removed_on': w.removed_on.isoformat() if w.removed_on else None, 'removed_reason': w.removed_reason,
         'company_owes': unpaid.get(w.id, 0),
     }
@@ -125,7 +125,7 @@ class MetaView(APIView):
         d = svc.today()
         return Response({
             'today': d.isoformat(), 'dow': svc.js_dow(d), 'settings': settings_json(),
-            'rules_locked': svc.salary_locked(svc.ym_of(d)), 'months': svc.months_available(),
+            'months': svc.months_available(),
             'categories': [category_json(c) for c in ExpenseCategory.objects.all()],
         })
 
@@ -137,8 +137,6 @@ class MetaView(APIView):
         if 'float_mgahawa' in data:
             st.float_mgahawa = pint(data, 'float_mgahawa')
         if 'rules' in data:
-            if svc.salary_locked(svc.ym_of(svc.today())):
-                raise Conflict('salary_locked', 'The salary list is approved, so the rules are locked.')
             rules = {}
             for k in svc.SPECIAL:
                 r = (data['rules'] or {}).get(k) or {}
@@ -250,6 +248,8 @@ class WorkerView(APIView):
         w = get_object_or_404(Worker, pk=pk)
         before = (w.pay_type, w.rate)
         apply_worker_fields(w, request.data, False)
+        if w.pay_type != before[0]:
+            w.monthly_since = svc.today() if w.pay_type == 'monthly' else None
         w.save()
         if (w.pay_type, w.rate) != before:  # how someone is paid changes the money, so keep a record
             svc.audit(request.user, 'worker.pay', w.id, pay_type=w.pay_type, rate=w.rate, was={'pay_type': before[0], 'rate': before[1]})
@@ -308,7 +308,7 @@ class WorkerShortagesView(APIView):
         if not reason:
             raise ValidationError({'reason': 'A reason is required.'})
         d = pdate(request.data['date']) if request.data.get('date') else svc.today()
-        svc.require_salary_open(d)
+        svc.require_salary_open(w, d)
         s = Shortage.objects.create(worker=w, date=d, amount=pint(request.data, 'amount', minimum=1), source='manual',
                                     reason=reason[:200], created_by=request.user)
         svc.audit(request.user, 'shortage.create', s.id, worker=w.id, amount=s.amount, source='manual', reason=reason)
@@ -318,7 +318,7 @@ class WorkerShortagesView(APIView):
 class ShortageView(APIView):
     def patch(self, request, pk):
         s = get_object_or_404(Shortage.objects.select_related('worker'), pk=pk)
-        svc.require_salary_open(s.date)
+        svc.require_salary_open(s.worker, s.date)
         s.status = pchoice(request.data, 'status', ['applied', 'waived'])
         s.save()
         svc.audit(request.user, 'shortage.' + ('waive' if s.status == 'waived' else 'reapply'), s.id,
@@ -330,7 +330,7 @@ class AdvancesView(APIView):
     def post(self, request):
         w = get_object_or_404(Worker, pk=pint(request.data, 'worker_id', minimum=1))
         d = pdate(request.data['date']) if request.data.get('date') else svc.today()
-        svc.require_salary_open(d)
+        svc.require_salary_open(w, d)
         a = Advance.objects.create(worker=w, date=d, amount=pint(request.data, 'amount', minimum=1), created_by=request.user)
         svc.audit(request.user, 'advance.create', a.id, worker=w.id, amount=a.amount)
         return Response({'id': a.id, 'worker_id': w.id, 'date': d.isoformat(), 'amount': a.amount}, status=201)
@@ -338,8 +338,8 @@ class AdvancesView(APIView):
 
 class AdvanceView(APIView):
     def delete(self, request, pk):
-        a = get_object_or_404(Advance, pk=pk)
-        svc.require_salary_open(a.date)
+        a = get_object_or_404(Advance.objects.select_related('worker'), pk=pk)
+        svc.require_salary_open(a.worker, a.date)
         a.delete()
         return Response(status=204)
 
@@ -483,9 +483,11 @@ class SalaryView(APIView):
 
 
 class SalaryApproveView(APIView):
+    """Approve one worker's pay month on this month's list: {worker_id, start}."""
     def post(self, request, ym):
         ym = pmonth(ym)
-        svc.approve_salary(ym, request.user)
+        w = get_object_or_404(Worker, pk=pint(request.data, 'worker_id', minimum=1))
+        svc.approve_pay_month(ym, w, pdate(request.data.get('start'), 'start'), request.user)
         return Response(svc.salary_list(ym))
 
 
@@ -496,7 +498,7 @@ class SalaryLinePaidView(APIView):
         ln.paid_at = timezone.now() if ln.paid else None
         ln.save()
         svc.audit(request.user, 'salary.paid', ln.id, worker=ln.worker_id, paid=ln.paid, net=ln.net)
-        return Response(svc.salary_list(ln.run.month))
+        return Response(svc.salary_list(ln.month))
 
 
 # ---------------------------------------------------------------- reports
